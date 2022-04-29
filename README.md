@@ -11,7 +11,7 @@ source ./scripts/assert.sh
 # <center>GEHC Gloo Mesh POC Runbook</center>
 
 ## Table of Contents
-* [Introduction to Gloo Mesh Concepts](#introduction)
+* [Introduction to Gloo Mesh](#introduction)
 * [Lab 0 - Prerequisites](#Lab-0)
 * [Lab 1 - Setting up your Kubernetes Contexts](#Lab-1)
 * [Lab 2 - Deploy Istio](#Lab-2)
