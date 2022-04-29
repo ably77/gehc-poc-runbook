@@ -14,6 +14,7 @@ source ./scripts/assert.sh
 
 ## Table of Contents
 * [Introduction](#introduction)
+* [Lab 0 - Prerequisites](#Lab-1)
 * [Lab 1 - Setting up your Kubernetes Contexts](#Lab-1)
 * [Lab 2 - Deploy Istio](#Lab-2)
 * [Lab 3 - Deploy the Bookinfo demo app](#Lab-3)
@@ -65,7 +66,17 @@ You can find more information about Gloo Mesh in the official documentation:
 
 [https://docs.solo.io/gloo-mesh/latest/](https://docs.solo.io/gloo-mesh/latest/)
 
+## Lab 0 - Prerequisites <a name="Lab-0"></a>
 
+This POC runbook assumes the following:
+- 3x clusters deployed on EKS w/3 workers (m5.xlarge instance size)
+- AWS NLB Controller deployed on all three clusters
+
+Set the GLOO_MESH_LICENSE_KEY environment variable before starting:
+
+```bash
+export GLOO_MESH_LICENSE_KEY="<INSERT_LICENSE_KEY_HERE>"
+```
 
 ## Lab 1 - Setting up your Kubernetes Contexts <a name="Lab-1"></a>
 
@@ -91,6 +102,14 @@ Run the following command to make `mgmt` the current cluster.
 kubectl config use-context ${MGMT}
 ```
 
+> If you prefer to use the existing context name, just set the variables as so:
+> ```
+> export MGMT=<cluster_mgmt_context>
+> export CLUSTER1="<cluster_1_context>"
+> export CLUSTER2="<cluster_2_context>"
+> ```
+>
+> Note: these variables may need to be set in each new terminal used
 
 
 ## Lab 2 - Deploy Istio <a name="Lab-2"></a>
