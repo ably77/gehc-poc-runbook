@@ -30,6 +30,7 @@ source ./scripts/assert.sh
 * [Lab 12 - Leverage Virtual Destinations](#Lab-12)
 * [Lab 13 - Service failover across clusters and Locality Configuration](#Lab-13)
 * [Lab 14 - Zero trust](#Lab-14)
+* [Lab 15 - Exploring the Gloo Mesh Enterprise UI](#Lab-15)
 
 ## Introduction <a name="introduction"></a>
 
@@ -2193,3 +2194,18 @@ kubectl --context ${CLUSTER1} -n httpbin debug -i -q ${pod} --image=curlimages/c
 You should get a `403` response code which means that the sidecar proxy of the `reviews` service doesn't allow the request.
 
 You've achieved zero trust with nearly no effort.
+
+## Lab 15 - Exploring the Gloo Mesh Enterprise UI <a name="Lab-15"></a>
+
+Gloo Mesh provides a powerful dashboard to view your multi-cluster Istio environment.
+
+The Overview page presents an at-a-glance look at the health of workspaces and clusters that make up your Gloo Mesh setup. In the Workspaces and Clusters panes, you can review a count of the healthy resources, sort by, or search by name for your resources. You can review top-level details about each resource in the resource cards. The Gloo Mesh UI includes a Graph page to visualize the network traffic in your apps across meshes and clusters. The graph is based off Prometheus metrics that the agents on each workload cluster send the management cluster.
+
+To access the UI, run the following command:
+```
+kubectl port-forward -n gloo-mesh svc/gloo-mesh-ui 8090 --context ${MGMT}
+```
+
+The UI is available at http://localhost:8090
+
+![Gloo Mesh Dashboard](images/gm-dashboard.png)
