@@ -13,7 +13,7 @@ source ./scripts/assert.sh
 ## Table of Contents
 * [Introduction to Gloo Mesh](#introduction)
 * [Lab 0 - Prerequisites](#Lab-0)
-* [Lab 1 - Setting up your Kubernetes Contexts](#Lab-1)
+* [Lab 1 - Setting up your Environment Variables](#Lab-1)
 * [Lab 2 - Deploy Istio](#Lab-2)
 * [Lab 3 - Deploy the Bookinfo demo app](#Lab-3)
 * [Lab 4 - Deploy the httpbin demo app](#Lab-4)
@@ -73,17 +73,18 @@ Before you start running through the Labs below, it is highly recommended to rea
 
 [Gloo Mesh Docs - Workspaces](https://docs.solo.io/gloo-mesh-enterprise/main/concepts/workspace/)
 
+### Prerequisites
 This POC runbook assumes the following:
 - 3x clusters deployed on EKS w/3 workers (m5.xlarge instance size)
 - AWS NLB Controller deployed on all three clusters
+
+## Lab 1 - Setting up your Environment Variables <a name="Lab-1"></a>
 
 Set the GLOO_MESH_LICENSE_KEY environment variable before starting:
 
 ```bash
 export GLOO_MESH_LICENSE_KEY="<INSERT_LICENSE_KEY_HERE>"
 ```
-
-## Lab 1 - Setting up your Kubernetes Contexts <a name="Lab-1"></a>
 
 Set the context environment variables:
 
