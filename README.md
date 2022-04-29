@@ -14,7 +14,7 @@ source ./scripts/assert.sh
 
 ## Table of Contents
 * [Introduction](#introduction)
-* [Lab 1 - Deploy the Kubernetes clusters manually](#Lab-1)
+* [Lab 1 - Deploy KinD clusters](#Lab-1)
 * [Lab 2 - Deploy Istio](#Lab-2)
 * [Lab 3 - Deploy the Bookinfo demo app](#Lab-3)
 * [Lab 4 - Deploy the httpbin demo app](#Lab-4)
@@ -75,7 +75,9 @@ You can find more information about Gloo Mesh in the official documentation:
 
 
 
-## Lab 1 - Deploy the Kubernetes clusters manually <a name="Lab-1"></a>
+## Lab 1 - Deploy KinD clusters <a name="Lab-1"></a>
+
+Clone this repository and go to the `gloo-mesh-2-0` directory.
 
 Set the context environment variables:
 
@@ -85,19 +87,57 @@ export CLUSTER1=cluster1
 export CLUSTER2=cluster2
 ```
 
-> Note that in case you can't have a Kubernetes cluster dedicated for the management plane, you would set the variables like that:
+> Note that in case you dont't have a Kubernetes cluster dedicated for the management plane, you would set the variables like that:
 > ```
 > export MGMT=cluster1
 > export CLUSTER1=cluster1
 > export CLUSTER2=cluster2
 > ```
 
-You also need to rename the Kubernete contexts of each Kubernetes cluster to match `mgmt`, `cluster1`, ...
+Run the following commands to deploy three Kubernetes clusters using [Kind](https://kind.sigs.k8s.io/):
+    
 
-Here is an example showing how to rename a Kubernetes context:
+```bash
+./scripts/deploy.sh 1 mgmt
+./scripts/deploy.sh 2 cluster1 us-west us-west-1
+./scripts/deploy.sh 3 cluster2 us-west us-west-2
+```
+
+Then run the following commands to wait for all the Pods to be ready:
+
+```bash
+./scripts/check.sh mgmt
+./scripts/check.sh cluster1 
+./scripts/check.sh cluster2 
+```
+
+**Note:** If you run the `check.sh` script immediately after the `deploy.sh` script, you may see a jsonpath error. If that happens, simply wait a few seconds and try again.
+
+Once the `check.sh` script completes, when you execute the `kubectl get pods -A` command, you should see the following:
 
 ```
-kubectl config rename-context <context to rename> <new context name>
+NAMESPACE            NAME                                          READY   STATUS    RESTARTS   AGE
+kube-system          calico-kube-controllers-59d85c5c84-sbk4k      1/1     Running   0          4h26m
+kube-system          calico-node-przxs                             1/1     Running   0          4h26m
+kube-system          coredns-6955765f44-ln8f5                      1/1     Running   0          4h26m
+kube-system          coredns-6955765f44-s7xxx                      1/1     Running   0          4h26m
+kube-system          etcd-cluster1-control-plane                   1/1     Running   0          4h27m
+kube-system          kube-apiserver-cluster1-control-plane         1/1     Running   0          4h27m
+kube-system          kube-controller-manager-cluster1-control-plane1/1     Running   0          4h27m
+kube-system          kube-proxy-ksvzw                              1/1     Running   0          4h26m
+kube-system          kube-scheduler-cluster1-control-plane         1/1     Running   0          4h27m
+local-path-storage   local-path-provisioner-58f6947c7-lfmdx        1/1     Running   0          4h26m
+metallb-system       controller-5c9894b5cd-cn9x2                   1/1     Running   0          4h26m
+metallb-system       speaker-d7jkp                                 1/1     Running   0          4h26m
+```
+
+You can see that your currently connected to this cluster by executing the `kubectl config get-contexts` command:
+
+```
+CURRENT   NAME         CLUSTER         AUTHINFO   NAMESPACE  
+          cluster1     kind-cluster1   cluster1
+*         cluster2     kind-cluster2   cluster2
+          mgmt         kind-mgmt       kind-mgmt 
 ```
 
 Run the following command to make `mgmt` the current cluster.
@@ -112,8 +152,6 @@ kubectl config use-context ${MGMT}
 
 
 We are going to deploy Istio using Helm, but there are several other options. You can find more information in the [Istio documentation](https://istio.io/latest/docs/setup/install/).
-Note that the few Openshift specific commands used in this lab are documented on the Istio website [here](https://istio.io/latest/docs/setup/platform-setup/openshift/).
-
 
 First of all, let's Download the Istio release 1.12.6:
 
@@ -139,7 +177,7 @@ describe("istioctl version", () => {
   });
 });
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/deploy-istio/tests/istio-version.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/deploy-istio/tests/istio-version.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -148,12 +186,6 @@ Then, you need to create the `istio-system` and the `istio-gateways` namespaces 
 ```bash
 kubectl --context ${CLUSTER1} create ns istio-system
 kubectl --context ${CLUSTER1} create ns istio-gateways
-```
-For Openshift clusters, you also need to run the following commands:
-
-```bash
-oc --context ${CLUSTER1} adm policy add-scc-to-group anyuid system:serviceaccounts:istio-system
-oc --context ${CLUSTER1} adm policy add-scc-to-group anyuid system:serviceaccounts:istio-gateways
 ```
 
 Now, let's deploy the Istio control plane on the first cluster:
@@ -187,41 +219,6 @@ pilot:
   env:
     PILOT_ENABLE_K8S_SELECT_WORKLOAD_ENTRIES: "false"
     PILOT_SKIP_VALIDATE_TRUST_DOMAIN: "true"
-istio_cni:
-  enabled: true
-sidecarInjectorWebhook:
-  injectedAnnotations:
-    k8s.v1.cni.cncf.io/networks: istio-cni
-EOF
-```
-For Openshift clusters, you need to deploy the `istio-cni` component and to create a run a `NetworkAttachmentDefinition` object:
-
-```bash
-helm --kube-context=${CLUSTER1} upgrade --install istio-cni -n kube-system ./istio-1.12.6/manifests/charts/istio-cni --values - <<EOF
-
-global:
-  hub: us-docker.pkg.dev/gloo-mesh/istio-workshops
-  tag: 1.12.6
-cni:
-  excludeNamespaces:
-    - istio-system
-    - kube-system
-    - metallb-system
-  repair:
-    enabled: false
-  logLevel: info
-  privileged: true
-  cniBinDir: /var/lib/cni/bin
-  cniConfDir: /etc/cni/multus/net.d
-  chained: false
-  cniConfFileName: istio-cni.conf
-EOF
-
-cat <<EOF | oc --context ${CLUSTER1} -n istio-gateways create -f -
-apiVersion: "k8s.cni.cncf.io/v1"
-kind: NetworkAttachmentDefinition
-metadata:
-  name: istio-cni
 EOF
 ```
 
@@ -455,7 +452,7 @@ describe("Checking Istio installation", function() {
   });
 });
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/deploy-istio/tests/istio-ready.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/deploy-istio/tests/istio-ready.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -463,11 +460,6 @@ Check the status on the second cluster using:
 
 ```bash
 kubectl --context ${CLUSTER2} get pods -n istio-system && kubectl --context ${CLUSTER2} get pods -n istio-gateways
-```
-Expose an OpenShift route for the ingress gateway on the first cluster:
-
-```bash
-oc --context ${CLUSTER1} -n istio-gateways expose svc/istio-ingressgateway --port=http2
 ```
 <!--bash
 until [[ $(kubectl --context ${CLUSTER1} -n istio-gateways get svc istio-ingressgateway -o json | jq '.status.loadBalancer | length') -gt 0 ]]; do
@@ -542,30 +534,12 @@ mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 We're going to deploy the bookinfo application to demonstrate several features of Istio and Gloo Mesh.
 
 You can find more information about this application [here](https://istio.io/latest/docs/examples/bookinfo/).
-Note that the few Openshift specific commands used in this lab are documented on the Istio website [here](https://istio.io/latest/docs/setup/platform-setup/openshift/).
 
 Run the following commands to deploy the bookinfo application on `cluster1`:
 
 ```bash
 kubectl --context ${CLUSTER1} create ns bookinfo-frontends
 kubectl --context ${CLUSTER1} create ns bookinfo-backends
-oc --context ${CLUSTER1} adm policy add-scc-to-group anyuid system:serviceaccounts:bookinfo-frontends
-oc --context ${CLUSTER1} adm policy add-scc-to-group anyuid system:serviceaccounts:bookinfo-backends
-
-cat <<EOF | oc --context ${CLUSTER1} -n bookinfo-frontends create -f -
-apiVersion: "k8s.cni.cncf.io/v1"
-kind: NetworkAttachmentDefinition
-metadata:
-  name: istio-cni
-EOF
-
-cat <<EOF | oc --context ${CLUSTER1} -n bookinfo-backends create -f -
-apiVersion: "k8s.cni.cncf.io/v1"
-kind: NetworkAttachmentDefinition
-metadata:
-  name: istio-cni
-EOF
-
 curl https://raw.githubusercontent.com/istio/istio/1.12.6/samples/bookinfo/platform/kube/bookinfo.yaml -s|sed 's/docker\.io\/istio/us-central1-docker\.pkg\.dev\/solo-test-236622\/jmunozro/g'|tee bookinfo.yaml
 kubectl --context ${CLUSTER1} label namespace bookinfo-frontends istio.io/rev=1-12
 kubectl --context ${CLUSTER1} label namespace bookinfo-backends istio.io/rev=1-12
@@ -670,7 +644,7 @@ describe("Bookinfo app", () => {
   });
 });
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/deploy-bookinfo/tests/check-bookinfo.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/bookinfo/deploy-bookinfo/tests/check-bookinfo.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -682,7 +656,6 @@ mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 We're going to deploy the httpbin application to demonstrate several features of Istio and Gloo Mesh.
 
 You can find more information about this application [here](http://httpbin.org/).
-Note that the few Openshift specific commands used in this lab are documented on the Istio website [here](https://istio.io/latest/docs/setup/platform-setup/openshift/).
 
 Run the following commands to deploy the httpbin app on `cluster1` twice.
 
@@ -690,16 +663,6 @@ The first version will be called `not-in-mesh` and won't have the sidecar inject
 
 ```bash
 kubectl --context ${CLUSTER1} create ns httpbin
-
-
-oc --context ${CLUSTER1} adm policy add-scc-to-group anyuid system:serviceaccounts:httpbin
-
-cat <<EOF | oc --context ${CLUSTER1} -n httpbin create -f -
-apiVersion: "k8s.cni.cncf.io/v1"
-kind: NetworkAttachmentDefinition
-metadata:
-  name: istio-cni
-EOF
 
 kubectl --context ${CLUSTER1} apply -n httpbin -f - <<EOF
 apiVersion: v1
@@ -823,7 +786,7 @@ describe("Bookinfo app", () => {
   });
 });
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/httpbin/deploy-httpbin/tests/check-httpbin.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/httpbin/deploy-httpbin/tests/check-httpbin.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -869,7 +832,7 @@ describe("Required environment variables should contain value", () => {
   });
 });
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/deploy-and-register-gloo-mesh/tests/environment-variables.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/deploy-and-register-gloo-mesh/tests/environment-variables.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -902,7 +865,7 @@ var chai = require('chai');
 var expect = chai.expect;
 chai.use(chaiExec);
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/deploy-and-register-gloo-mesh/tests/get-gloo-mesh-mgmt-server-ip.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/deploy-and-register-gloo-mesh/tests/get-gloo-mesh-mgmt-server-ip.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -976,7 +939,6 @@ helm upgrade --install gloo-mesh-agent gloo-mesh-agent/gloo-mesh-agent \
   --set rate-limiter.enabled=false \
   --set ext-auth-service.enabled=false \
   --set cluster=cluster1 \
-  --set glooMeshAgent.floatingUserId=true \
   --version 2.0.0-beta33
 ```
 
@@ -1051,7 +1013,7 @@ describe("Cluster registration", () => {
   });
 });
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/deploy-and-register-gloo-mesh/tests/cluster-registration.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/deploy-and-register-gloo-mesh/tests/cluster-registration.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -1065,14 +1027,6 @@ kubectl --context ${CLUSTER1} create namespace gloo-mesh-addons
 kubectl --context ${CLUSTER1} label namespace gloo-mesh-addons istio.io/rev=1-12
 kubectl --context ${CLUSTER2} create namespace gloo-mesh-addons
 kubectl --context ${CLUSTER2} label namespace gloo-mesh-addons istio.io/rev=1-12
-oc --context ${CLUSTER1} adm policy add-scc-to-group anyuid system:serviceaccounts:gloo-mesh-addons
-
-cat <<EOF | oc --context ${CLUSTER1} -n gloo-mesh-addons create -f -
-apiVersion: "k8s.cni.cncf.io/v1"
-kind: NetworkAttachmentDefinition
-metadata:
-  name: istio-cni
-EOF
 ```
 
 Then, you can deploy the addons on the cluster(s) using Helm:
@@ -1084,7 +1038,6 @@ helm upgrade --install gloo-mesh-agent-addons gloo-mesh-agent/gloo-mesh-agent \
   --set glooMeshAgent.enabled=false \
   --set rate-limiter.enabled=true \
   --set ext-auth-service.enabled=true \
-  --set glooMeshAgent.floatingUserId=true \
   --version 2.0.0-beta33
 
 helm upgrade --install gloo-mesh-agent-addons gloo-mesh-agent/gloo-mesh-agent \
@@ -1338,7 +1291,7 @@ describe("Productpage is available (HTTP)", () => {
   it('/productpage is available in cluster1', () => helpers.checkURL({ host: 'http://' + process.env.ENDPOINT_HTTP_GW_CLUSTER1, path: '/productpage', retCode: 200 }));
 })
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/gateway-expose/tests/productpage-available.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/bookinfo/gateway-expose/tests/productpage-available.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -1394,21 +1347,6 @@ spec:
 EOF
 ```
 
-If your Kubernetes cluster is running on AWS, the Load Balancer created for the Service Type Load Balancer corresponding to the Istio Ingress Gateway has a health check port configured to use the HTTP port.
-
-Gloo Mesh is now configuring the Istio Ingress Gateway to listen on HTTPS, so in that case you need to patch the Kubernetes Service as follow.
-
-```bash
-cat << EOF > svc-patch.yaml
-spec:
-  ports:
-  - port: 80
-    targetPort: 8443
-EOF
-
-kubectl --context ${CLUSTER2} patch -n istio-gateways svc istio-ingressgateway -p "$(cat svc-patch.yaml)"
-```
-
 You can now access the `productpage` application securely through the browser.
 Get the URL to access the `productpage` service using the following command:
 ```
@@ -1423,7 +1361,7 @@ describe("Productpage is available (HTTPS)", () => {
   it('/productpage is available in cluster1', () => helpers.checkURL({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1, path: '/productpage', retCode: 200 }));
 })
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/gateway-expose/tests/productpage-available-secure.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/bookinfo/gateway-expose/tests/productpage-available-secure.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -1586,7 +1524,7 @@ describe("Reviews shouldn't be available", () => {
 });
 
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/traffic-policies/tests/traffic-policies-reviews-unavailable.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/bookinfo/traffic-policies/tests/traffic-policies-reviews-unavailable.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -1932,7 +1870,7 @@ describe("Certificate issued by Gloo Mesh", () => {
   });
 });
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/root-trust-policy/tests/certificate-issued-by-gloo-mesh.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/root-trust-policy/tests/certificate-issued-by-gloo-mesh.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -2099,7 +2037,7 @@ describe("Reviews v3", function() {
   })
 });
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/multicluster-traffic/tests/reviews-v3.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/bookinfo/multicluster-traffic/tests/reviews-v3.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -2246,7 +2184,7 @@ describe("Productpage is available (SSL)", () => {
   it('/productpage is available in cluster2', () => helpers.checkURL({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER2, path: '/productpage', retCode: 200 }));
 })
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/virtual-destination/tests/productpage-available-secure.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/bookinfo/virtual-destination/tests/productpage-available-secure.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -2343,7 +2281,7 @@ describe("Productpage is available (SSL)", () => {
   it('/productpage is available in cluster2', () => helpers.checkURL({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER2, path: '/productpage', retCode: 200 }));
 })
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/virtual-destination/tests/productpage-available-secure.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/bookinfo/virtual-destination/tests/productpage-available-secure.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -2371,7 +2309,7 @@ describe("Productpage is available (SSL)", () => {
   it('/productpage is available in cluster2', () => helpers.checkURL({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER2, path: '/productpage', retCode: 200 }));
 })
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/virtual-destination/tests/productpage-available-secure.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/bookinfo/virtual-destination/tests/productpage-available-secure.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -2408,7 +2346,7 @@ describe("Productpage is available (SSL)", () => {
   it('/productpage is available in cluster2', () => helpers.checkURL({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER2, path: '/productpage', retCode: 200 }));
 })
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/virtual-destination/tests/productpage-available-secure.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/bookinfo/virtual-destination/tests/productpage-available-secure.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -2511,7 +2449,7 @@ describe("Communication allowed", () => {
   });
 });
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/zero-trust/tests/not-in-mesh-to-in-mesh-allowed.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/bookinfo/zero-trust/tests/not-in-mesh-to-in-mesh-allowed.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -2536,7 +2474,7 @@ describe("Communication allowed", () => {
   });
 });
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/zero-trust/tests/in-mesh-to-in-mesh-allowed.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/bookinfo/zero-trust/tests/in-mesh-to-in-mesh-allowed.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -2613,7 +2551,7 @@ describe("Communication notallowed", () => {
   });
 });
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/zero-trust/tests/not-in-mesh-to-in-mesh-not-allowed.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/bookinfo/zero-trust/tests/not-in-mesh-to-in-mesh-not-allowed.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -2638,7 +2576,7 @@ describe("Communication not allowed", () => {
   });
 });
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/zero-trust/tests/in-mesh-to-in-mesh-not-allowed.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/bookinfo/zero-trust/tests/in-mesh-to-in-mesh-not-allowed.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -2779,7 +2717,7 @@ describe("httpbin from the external service", () => {
   it('Checking text \'X-Amzn-Trace-Id\' in ' + process.env.CLUSTER1, () => helpersHttp.checkBody({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1, path: '/get', body: 'X-Amzn-Trace-Id', match: true }));
 })
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/httpbin/gateway-external-service/tests/httpbin-from-external.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/httpbin/gateway-external-service/tests/httpbin-from-external.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -2840,7 +2778,7 @@ describe("httpbin from the local service", () => {
   it('Checking text \'X-B3-Parentspanid\' in ' + process.env.CLUSTER1, () => helpersHttp.checkBody({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1, path: '/get', body: 'X-B3-Parentspanid', match: true }));
 })
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/httpbin/gateway-external-service/tests/httpbin-from-local.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/httpbin/gateway-external-service/tests/httpbin-from-local.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 <!--bash
@@ -2851,7 +2789,7 @@ describe("httpbin from the external service", () => {
   it('Checking text \'X-Amzn-Trace-Id\' in ' + process.env.CLUSTER1, () => helpersHttp.checkBody({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1, path: '/get', body: 'X-Amzn-Trace-Id', match: true }));
 })
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/httpbin/gateway-external-service/tests/httpbin-from-external.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/httpbin/gateway-external-service/tests/httpbin-from-external.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -2903,7 +2841,7 @@ describe("httpbin from the local service", () => {
   it('Checking text \'X-B3-Parentspanid\' in ' + process.env.CLUSTER1, () => helpersHttp.checkBody({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1, path: '/get', body: 'X-B3-Parentspanid', match: true }));
 })
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/httpbin/gateway-external-service/tests/httpbin-from-local.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/httpbin/gateway-external-service/tests/httpbin-from-local.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -2942,7 +2880,7 @@ describe("Keycloak", () => {
   it('keycloak pods are ready in cluster1', () => helpers.checkDeployment({ context: process.env.MGMT, namespace: "keycloak", k8sObj: "keycloak" }));
 });
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/deploy-keycloak/tests/pods-available.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/deploy-keycloak/tests/pods-available.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -2970,7 +2908,7 @@ describe("Retrieve enterprise-networking ip", () => {
   });
 });
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/deploy-keycloak/tests/keycloak-ip-is-attached.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/deploy-keycloak/tests/keycloak-ip-is-attached.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -3200,7 +3138,7 @@ describe("Authentication is working properly", function() {
 });
 
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/httpbin/gateway-extauth-oauth/tests/authentication.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/httpbin/gateway-extauth-oauth/tests/authentication.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -3401,7 +3339,7 @@ describe("Claim to header is working properly", function() {
 });
 
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/httpbin/gateway-jwt/tests/header-added.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/httpbin/gateway-jwt/tests/header-added.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -3466,7 +3404,7 @@ describe("Tranformation is working properly", function() {
 });
 
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/httpbin/gateway-transformation/tests/header-added.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/httpbin/gateway-transformation/tests/header-added.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -3637,7 +3575,7 @@ describe("Rate limiting is working properly", function() {
 });
 
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/httpbin/gateway-ratelimiting/tests/rate-limited.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/httpbin/gateway-ratelimiting/tests/rate-limited.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
@@ -3783,7 +3721,7 @@ describe("WAF is working properly", function() {
 });
 
 EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/httpbin/gateway-waf/tests/waf.test.js.liquid"
+echo "executing test dist/gloo-mesh-2-0/build/templates/steps/apps/httpbin/gateway-waf/tests/waf.test.js.liquid"
 mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
 -->
 
