@@ -14,7 +14,7 @@ source ./scripts/assert.sh
 
 ## Table of Contents
 * [Introduction](#introduction)
-* [Lab 0 - Prerequisites](#Lab-1)
+* [Lab 0 - Prerequisites](#Lab-0)
 * [Lab 1 - Setting up your Kubernetes Contexts](#Lab-1)
 * [Lab 2 - Deploy Istio](#Lab-2)
 * [Lab 3 - Deploy the Bookinfo demo app](#Lab-3)
