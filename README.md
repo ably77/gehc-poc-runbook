@@ -27,10 +27,8 @@ source ./scripts/assert.sh
 * [Lab 10 - Create the Root Trust Policy](#Lab-10)
 * [Lab 11 - Multi-cluster Traffic](#Lab-11)
 * [Lab 12 - Leverage Virtual Destinations](#Lab-12)
-* [Lab 13 - Zero trust](#Lab-13)
-* [Lab 14 - Create the httpbin workspace](#Lab-14)
-* [Lab 15 - Expose an external service](#Lab-15)
-
+* [Lab 13 - Service failover across clusters and Locality Configuration](#Lab-13)
+* [Lab 14 - Zero trust](#Lab-14)
 
 ## Introduction <a name="introduction"></a>
 
@@ -1896,7 +1894,9 @@ This diagram shows the flow of the request (through both Istio ingress gateways)
 
 ![Gloo Mesh Virtual Destination Both](images/steps/virtual-destination/gloo-mesh-virtual-destination-both.svg)
 
-It's nice, but you generally want to direct the traffic to the local services if they're available and failover to the remote cluster only when they're not.
+## Lab 13 - Service failover across clusters and Locality Configuration <a name="Lab-13"></a>
+
+It's nice to now be able to shift traffic across multiple clusters, but you generally want to direct the traffic to the local services if they're available and failover to the remote cluster only when they're not.
 
 In order to do that we need to create 2 other policies.
 
@@ -2078,7 +2078,7 @@ kubectl --context ${CLUSTER1} -n bookinfo-frontends delete outlierdetectionpolic
 
 
 
-## Lab 13 - Zero trust <a name="Lab-13"></a>
+## Lab 14 - Zero trust <a name="Lab-14"></a>
 
 In the previous step, we federated multiple meshes and established a shared root CA for a shared identity domain.
 
@@ -2174,223 +2174,3 @@ kubectl --context ${CLUSTER1} -n httpbin debug -i -q ${pod} --image=curlimages/c
 You should get a `403` response code which means that the sidecar proxy of the `reviews` service doesn't allow the request.
 
 You've achieved zero trust with nearly no effort.
-
-
-
-## Lab 14 - Create the httpbin workspace <a name="Lab-14"></a>
-
-We're going to create a workspace for the team in charge of the httpbin application.
-
-The platform team needs to create the corresponding `Workspace` Kubernetes objects in the Gloo Mesh management cluster.
-
-Let's create the `httpbin` workspace which corresponds to the `httpbin` namespace on `cluster1`:
-
-```bash
-kubectl apply --context ${MGMT} -f- <<EOF
-apiVersion: admin.gloo.solo.io/v2
-kind: Workspace
-metadata:
-  name: httpbin
-  namespace: gloo-mesh
-  labels:
-    allow_ingress: "true"
-spec:
-  workloadClusters:
-  - name: cluster1
-    namespaces:
-    - name: httpbin
-EOF
-```
-
-Then, the Httpbin team creates a `WorkspaceSettings` Kubernetes object in one of the namespaces of the `httpbin` workspace:
-
-```bash
-kubectl apply --context ${CLUSTER1} -f- <<EOF
-apiVersion: admin.gloo.solo.io/v2
-kind: WorkspaceSettings
-metadata:
-  name: httpbin
-  namespace: httpbin
-spec:
-  importFrom:
-  - workspaces:
-    - name: gateways
-    resources:
-    - kind: SERVICE
-  exportTo:
-  - workspaces:
-    - name: gateways
-    resources:
-    - kind: SERVICE
-      labels:
-        app: in-mesh
-    - kind: ALL
-      labels:
-        expose: "true"
-EOF
-```
-
-The Httpbin team has decided to export the following to the `gateway` workspace (using a reference):
-- the `in-mesh` Kubernetes service
-- all the resources (RouteTables, VirtualDestination, ...) that have the label `expose` set to `true`
-
-
-
-## Lab 15 - Expose an external service <a name="Lab-15"></a>
-
-In this step, we're going to expose an external service through a Gateway using Gloo Mesh and show how we can then migrate this service to the Mesh.
-
-Let's create an `ExternalService` corresponding to `httpbin.org`:
-
-```bash
-kubectl --context ${CLUSTER1} apply -f - <<EOF
-apiVersion: networking.gloo.solo.io/v2
-kind: ExternalService
-metadata:
-  name: httpbin
-  namespace: httpbin
-  labels:
-    expose: "true"
-spec:
-  hosts:
-  - httpbin.org
-  ports:
-  - name: http
-    number: 80
-    protocol: HTTP
-  - name: https
-    number: 443
-    protocol: HTTPS
-    clientsideTls: {}
-EOF
-```
-
-Now, you can create a `RouteTable` to expose `httpbin.org` through the gateway:
-
-```bash
-kubectl --context ${CLUSTER1} apply -f - <<EOF
-apiVersion: networking.gloo.solo.io/v2
-kind: RouteTable
-metadata:
-  name: httpbin
-  namespace: httpbin
-  labels:
-    expose: "true"
-spec:
-  hosts:
-    - '*'
-  virtualGateways:
-    - name: north-south-gw
-      namespace: istio-gateways
-      cluster: cluster1
-  workloadSelectors: []
-  http:
-    - name: httpbin
-      matchers:
-      - uri:
-          exact: /get
-      forwardTo:
-        destinations:
-        - kind: EXTERNAL_SERVICE
-          port:
-            number: 443
-          ref:
-            name: httpbin
-            namespace: httpbin
-EOF
-```
-
-You should now be able to access `httpbin.org` external service through the gateway.
-
-Get the URL to access the `httpbin` service using the following command:
-```
-echo "https://${ENDPOINT_HTTPS_GW_CLUSTER1}/get"
-```
-
-Let's update the `RouteTable` to direct 50% of the traffic to the local `httpbin` service:
-
-```bash
-kubectl --context ${CLUSTER1} apply -f - <<EOF
-apiVersion: networking.gloo.solo.io/v2
-kind: RouteTable
-metadata:
-  name: httpbin
-  namespace: httpbin
-  labels:
-    expose: "true"
-spec:
-  hosts:
-    - '*'
-  virtualGateways:
-    - name: north-south-gw
-      namespace: istio-gateways
-      cluster: cluster1
-  workloadSelectors: []
-  http:
-    - name: httpbin
-      matchers:
-      - uri:
-          exact: /get
-      forwardTo:
-        destinations:
-        - kind: EXTERNAL_SERVICE
-          port:
-            number: 443
-          ref:
-            name: httpbin
-            namespace: httpbin
-          weight: 50
-        - ref:
-            name: in-mesh
-            namespace: httpbin
-          port:
-            number: 8000
-          weight: 50
-EOF
-```
-
-If you refresh your browser, you should see that you get a response either from the local service or from the external service.
-
-When the response comes from the external service (httpbin.org), there's a `X-Amzn-Trace-Id` header.
-
-And when the response comes from the local service, there's a `X-B3-Parentspanid` header.
-
-Finally, you can update the `RouteTable` to direct all the traffic to the local `httpbin` service:
-
-```bash
-kubectl --context ${CLUSTER1} apply -f - <<EOF
-apiVersion: networking.gloo.solo.io/v2
-kind: RouteTable
-metadata:
-  name: httpbin
-  namespace: httpbin
-  labels:
-    expose: "true"
-spec:
-  hosts:
-    - '*'
-  virtualGateways:
-    - name: north-south-gw
-      namespace: istio-gateways
-      cluster: cluster1
-  workloadSelectors: []
-  http:
-    - name: httpbin
-      matchers:
-      - uri:
-          exact: /get
-      forwardTo:
-        destinations:
-        - ref:
-            name: in-mesh
-            namespace: httpbin
-          port:
-            number: 8000
-EOF
-```
-
-If you refresh your browser, you should see that you get responses only from the local service.
-
-This diagram shows the flow of the requests :
-
-![Gloo Mesh Gateway EXternal Service](images/steps/gateway-external-service/gloo-mesh-gateway-external-service.svg)
