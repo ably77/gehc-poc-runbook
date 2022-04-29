@@ -21,7 +21,8 @@ source ./scripts/assert.sh
 * [Lab 5 - Deploy and register Gloo Mesh](#Lab-5)
 * [Lab 6 - Create the gateways workspace](#Lab-6)
 * [Lab 7 - Create the bookinfo workspace](#Lab-7)
-* [Lab 8 - Expose the productpage through a gateway](#Lab-8)
+* [Lab 8a - Expose the productpage through a gateway](#Lab-8a)
+* [Lab 8b - Canary deployment with traffic shifting](#Lab-8b)
 * [Lab 9 - Traffic policies](#Lab-9)
 * [Lab 10 - Create the Root Trust Policy](#Lab-10)
 * [Lab 11 - Multi-cluster Traffic](#Lab-11)
@@ -923,7 +924,7 @@ This is how to environment looks like with the workspaces:
 
 
 
-## Lab 8 - Expose the productpage through a gateway <a name="Lab-8"></a>
+## Lab 8a - Expose the productpage through a gateway <a name="Lab-8a"></a>
 
 In this step, we're going to expose the `productpage` service through the Ingress Gateway using Gloo Mesh.
 
@@ -1062,7 +1063,158 @@ This diagram shows the flow of the request (through the Istio Ingress Gateway):
 
 ![Gloo Mesh Gateway](images/steps/gateway-expose/gloo-mesh-gateway.svg)
 
+## Lab 8b - Canary deployment with traffic shifting <a name="Lab-8b"></a>
 
+Let's explore weighted destinations and how we can use them to demonstrate basic functionality of canary deployments. Leveraging weighted destinations, we can start to build up foundations of progressive delivery techniques
+
+Take note that our current deployment does not have any weights defined. This will result in a round-robin behavior across the existing reviews services in cluster1. You will notice that v1 (no stars) and v2 (black stars) reviews services. 
+
+Let's assume that the v2 reviews service is a newly developed application. Round robin in this case may not be desirable in this situation since we may still be testing the functionality of the "new" v2 service in our cluster. A good strategy we can leverage to carefully release the v2 service is canary/progressive delivery.
+
+Here we will create a new RouteTable that will allow us to define weights for our reviews service so that I can control the flow of traffic to each subset. Let's start by setting 100% of the weight to the v1 service. 
+
+```bash
+kubectl --context ${CLUSTER1} apply -f - <<EOF
+apiVersion: networking.gloo.solo.io/v2
+kind: RouteTable
+metadata:
+  name: reviews
+  namespace: bookinfo-backends
+spec:
+  hosts:
+  - reviews.bookinfo-backends.svc.cluster.local
+  http:
+  - forwardTo:
+      destinations:
+      - port:
+          number: 9080
+        ref:
+          cluster: cluster1
+          name: reviews
+          namespace: bookinfo-backends
+        subset:
+          version: v1
+        weight: 100
+      - port:
+          number: 9080
+        ref:
+          cluster: cluster1
+          name: reviews
+          namespace: bookinfo-backends
+        subset:
+          version: v2
+        weight: 0
+    matchers:
+    - uri:
+        prefix: /
+    name: reviews
+  workloadSelectors:
+  - selector:
+      labels:
+        app: productpage
+EOF
+```
+
+If you navigate back to your bookinfo application, what we should observe is that only v1 reviews service is available (no stars)
+
+Great! Now lets slowly shift traffic to our newly created v2 service and observe the behavior for correctness. Typically you can do this progressively to ensure low impact in case of an issue such as a 20-40-60-80-100 weighted strategy. For this lab we will just progressively shift to v2 50/50, and then 100% v2
+
+```bash
+kubectl --context ${CLUSTER1} apply -f - <<EOF
+apiVersion: networking.gloo.solo.io/v2
+kind: RouteTable
+metadata:
+  name: reviews
+  namespace: bookinfo-backends
+spec:
+  hosts:
+  - reviews.bookinfo-backends.svc.cluster.local
+  http:
+  - forwardTo:
+      destinations:
+      - port:
+          number: 9080
+        ref:
+          cluster: cluster1
+          name: reviews
+          namespace: bookinfo-backends
+        subset:
+          version: v1
+        weight: 50
+      - port:
+          number: 9080
+        ref:
+          cluster: cluster1
+          name: reviews
+          namespace: bookinfo-backends
+        subset:
+          version: v2
+        weight: 50
+    matchers:
+    - uri:
+        prefix: /
+    name: reviews
+  workloadSelectors:
+  - selector:
+      labels:
+        app: productpage
+EOF
+```
+
+If you navigate back to your bookinfo application, what we should observe is v1 and v2 reviews service are served 50% of the time
+
+Now that we feel confident that v2 reviews service will work, we can shift traffic completely to v2 (black stars)
+
+```bash
+kubectl --context ${CLUSTER1} apply -f - <<EOF
+apiVersion: networking.gloo.solo.io/v2
+kind: RouteTable
+metadata:
+  name: reviews
+  namespace: bookinfo-backends
+spec:
+  hosts:
+  - reviews.bookinfo-backends.svc.cluster.local
+  http:
+  - forwardTo:
+      destinations:
+      - port:
+          number: 9080
+        ref:
+          cluster: cluster1
+          name: reviews
+          namespace: bookinfo-backends
+        subset:
+          version: v1
+        weight: 0
+      - port:
+          number: 9080
+        ref:
+          cluster: cluster1
+          name: reviews
+          namespace: bookinfo-backends
+        subset:
+          version: v2
+        weight: 100
+    matchers:
+    - uri:
+        prefix: /
+    name: reviews
+  workloadSelectors:
+  - selector:
+      labels:
+        app: productpage
+EOF
+```
+
+If you navigate back to your bookinfo application, what we should observe v2 reviews service is served 100% of the time
+
+We have now successfully transitioned our v1 app to the v2 canary!
+
+Let's delete the `RouteTable` we've created to move forward with the next labs:
+```bash
+kubectl --context ${CLUSTER1} -n bookinfo-backends delete routetable reviews
+```
 
 ## Lab 9 - Traffic policies <a name="Lab-9"></a>
 
