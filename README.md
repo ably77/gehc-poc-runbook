@@ -78,13 +78,6 @@ export CLUSTER1=cluster1
 export CLUSTER2=cluster2
 ```
 
-> Note that in case you can't have a Kubernetes cluster dedicated for the management plane, you would set the variables like that:
-> ```
-> export MGMT=cluster1
-> export CLUSTER1=cluster1
-> export CLUSTER2=cluster2
-> ```
-
 You also need to rename the Kubernete contexts of each Kubernetes cluster to match `mgmt`, `cluster1`, ...
 
 Here is an example showing how to rename a Kubernetes context:
