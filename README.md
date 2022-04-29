@@ -30,7 +30,7 @@ source ./scripts/assert.sh
 * [Lab 14 - Zero trust](#Lab-14)
 * [Lab 15 - Exploring the Gloo Mesh Enterprise UI](#Lab-15)
 
-## Introduction to Gloo Mesh Concepts <a name="introduction"></a>
+## Introduction to Gloo Mesh <a name="introduction"></a>
 
 [Gloo Mesh Enterprise](https://www.solo.io/products/gloo-mesh/) is a management plane which makes it easy to operate [Istio](https://istio.io) on one or many Kubernetes clusters deployed anywhere (any platform, anywhere).
 
@@ -59,16 +59,19 @@ Gloo Mesh provides many unique features, including:
 
 ![Gloo Mesh graph](images/gloo-mesh-graph.png)
 
+## Lab 0 - Prerequisites <a name="Lab-0"></a>
+
 ### HIGHLY RECOMMENDED: Read Before Starting the Labs Below:
 
 Before you start running through the Labs below, it is highly recommended to read the About and Concepts sections linked below. Here you will begin to learn the high level value add that Gloo Mesh brings to your Istio architecture. Understanding of the concepts and architecture of Gloo Mesh will help us greatly as we move along the hands-on labs.
 
 [Gloo Mesh Docs - About Gloo Mesh V2](https://docs.solo.io/gloo-mesh-enterprise/main/concepts/about/)
-[Gloo Mesh Docs - API Concepts](https://docs.solo.io/gloo-mesh-enterprise/main/concepts/concepts/)
-[Gloo Mesh Docs - Relay Architecture](https://docs.solo.io/gloo-mesh-enterprise/main/concepts/relay/)
-[Gloo Mesh Docs - Workspaces](https://docs.solo.io/gloo-mesh-enterprise/main/concepts/workspace/)
 
-## Lab 0 - Prerequisites <a name="Lab-0"></a>
+[Gloo Mesh Docs - API Concepts](https://docs.solo.io/gloo-mesh-enterprise/main/concepts/concepts/)
+
+[Gloo Mesh Docs - Relay Architecture](https://docs.solo.io/gloo-mesh-enterprise/main/concepts/relay/)
+
+[Gloo Mesh Docs - Workspaces](https://docs.solo.io/gloo-mesh-enterprise/main/concepts/workspace/)
 
 This POC runbook assumes the following:
 - 3x clusters deployed on EKS w/3 workers (m5.xlarge instance size)
