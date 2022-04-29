@@ -10,10 +10,8 @@ source ./scripts/assert.sh
 ![Gloo Mesh Enterprise](images/gloo-mesh-enterprise.png)
 # <center>GEHC Gloo Mesh POC Runbook</center>
 
-
-
 ## Table of Contents
-* [Introduction](#introduction)
+* [Introduction to Gloo Mesh Concepts](#introduction)
 * [Lab 0 - Prerequisites](#Lab-0)
 * [Lab 1 - Setting up your Kubernetes Contexts](#Lab-1)
 * [Lab 2 - Deploy Istio](#Lab-2)
@@ -32,7 +30,7 @@ source ./scripts/assert.sh
 * [Lab 14 - Zero trust](#Lab-14)
 * [Lab 15 - Exploring the Gloo Mesh Enterprise UI](#Lab-15)
 
-## Introduction <a name="introduction"></a>
+## Introduction to Gloo Mesh Concepts <a name="introduction"></a>
 
 [Gloo Mesh Enterprise](https://www.solo.io/products/gloo-mesh/) is a management plane which makes it easy to operate [Istio](https://istio.io) on one or many Kubernetes clusters deployed anywhere (any platform, anywhere).
 
@@ -61,11 +59,14 @@ Gloo Mesh provides many unique features, including:
 
 ![Gloo Mesh graph](images/gloo-mesh-graph.png)
 
-### Want to learn more about Gloo Mesh
+### HIGHLY RECOMMENDED: Read Before Starting the Labs Below:
 
-You can find more information about Gloo Mesh in the official documentation:
+Before you start running through the Labs below, it is highly recommended to read the About and Concepts sections linked below. Here you will begin to learn the high level value add that Gloo Mesh brings to your Istio architecture. Understanding of the concepts and architecture of Gloo Mesh will help us greatly as we move along the hands-on labs.
 
-[https://docs.solo.io/gloo-mesh/latest/](https://docs.solo.io/gloo-mesh/latest/)
+[Gloo Mesh Docs - About Gloo Mesh V2](https://docs.solo.io/gloo-mesh-enterprise/main/concepts/about/)
+[Gloo Mesh Docs - API Concepts](https://docs.solo.io/gloo-mesh-enterprise/main/concepts/concepts/)
+[Gloo Mesh Docs - Relay Architecture](https://docs.solo.io/gloo-mesh-enterprise/main/concepts/relay/)
+[Gloo Mesh Docs - Workspaces](https://docs.solo.io/gloo-mesh-enterprise/main/concepts/workspace/)
 
 ## Lab 0 - Prerequisites <a name="Lab-0"></a>
 
