@@ -30,6 +30,9 @@ source ./scripts/assert.sh
 * [Lab 14 - Zero trust](#Lab-14)
 * [Lab 15 - Exploring the Gloo Mesh Enterprise UI](#Lab-15)
 
+BONUS Section:
+* [Bonus - [YouTube] Gloo Mesh + SpectroCloud - Cluster Bootstrap / Onboarding Demo ](#spectrocloud)
+
 ## Introduction to Gloo Mesh <a name="introduction"></a>
 
 [Gloo Mesh Enterprise](https://www.solo.io/products/gloo-mesh/) is a management plane which makes it easy to operate [Istio](https://istio.io) on one or many Kubernetes clusters deployed anywhere (any platform, anywhere).
@@ -2214,3 +2217,9 @@ kubectl port-forward -n gloo-mesh svc/gloo-mesh-ui 8090 --context ${MGMT}
 The UI is available at http://localhost:8090
 
 ![Gloo Mesh Dashboard](images/gm-dashboard.png)
+
+## Bonus - YouTube - Gloo Mesh + SpectroCloud - Cluster Bootstrap / Onboarding Demo <a name="spectrocloud"></a>
+
+This quick 6 minute video will demonstrate bootstrapping and onboarding clusters to Gloo Mesh using SpectroCloud
+
+[![Youtube Video Demonstration](images/spectrocloud-onboarding.png)](https://youtu.be/gUIhq0Yk0rs)
