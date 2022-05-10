@@ -651,10 +651,69 @@ kubectl --context ${MGMT} create ns gloo-mesh
 helm upgrade --install gloo-mesh-enterprise gloo-mesh-enterprise/gloo-mesh-enterprise \
 --namespace gloo-mesh --kube-context ${MGMT} \
 --version=2.0.0-beta33 \
---set glooMeshMgmtServer.ports.healthcheck=8091 \
---set glooMeshUi.serviceType=LoadBalancer \
---set mgmtClusterName=${MGMT} \
---set licenseKey=${GLOO_MESH_LICENSE_KEY}
+--values - <<EOF
+licenseKey: "${GLOO_MESH_LICENSE_KEY}"
+mgmtClusterName: mgmt
+glooMeshMgmtServer:
+  resources:
+    requests:
+      cpu: 125m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  ports:
+    healthcheck: 8091
+    grpc: 9900
+  serviceType: LoadBalancer
+  # Additional settings to add to the load balancer service
+  serviceOverrides:
+    metadata:
+      annotations:
+        # AWS-specific annotations
+        service.beta.kubernetes.io/aws-load-balancer-healthcheck-healthy-threshold: "2"
+        service.beta.kubernetes.io/aws-load-balancer-healthcheck-unhealthy-threshold: "2"
+        service.beta.kubernetes.io/aws-load-balancer-healthcheck-interval: "10"
+        service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: "9900"
+        service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: "tcp"
+        service.beta.kubernetes.io/aws-load-balancer-type: external
+        service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+        service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+        service.beta.kubernetes.io/aws-load-balancer-backend-protocol: TCP
+        service.beta.kubernetes.io/aws-load-balancer-name: solo-poc-gloo-mesh-mgmt-server
+  relay:
+    disableCA: false
+    disableCACertGeneration: false
+glooMeshUi:
+  resources:
+    requests:
+      cpu: 125m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Gi
+rbac-webhook:
+  enabled: false
+glooMeshRedis:
+  resources:
+    requests:
+      cpu: 125m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Gi
+prometheus:
+  enabled: true
+  server:
+    resources:
+      requests:
+        cpu: 125m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Gi
+EOF
+
 kubectl --context ${MGMT} -n gloo-mesh rollout status deploy/gloo-mesh-mgmt-server
 ```
 
