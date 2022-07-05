@@ -334,7 +334,7 @@ gateways:
     labels:
       istio: ingressgateway
     injectionTemplate: gateway
-    type: NodePort
+    type: LoadBalancer
     ports:
     - name: http2
       port: 80
@@ -368,7 +368,7 @@ gateways:
       istio: eastwestgateway
       topology.istio.io/network: network1
     injectionTemplate: gateway
-    type: NodePort
+    type: LoadBalancer
     ports:
     - name: tcp-status-port
       port: 15021
