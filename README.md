@@ -190,10 +190,8 @@ gateways:
     labels:
       istio: ingressgateway
     injectionTemplate: gateway
+    type: LoadBalancer
     ports:
-    - name: tcp-status-port
-      port: 15021
-      targetPort: 15021
     - name: http2
       port: 80
       targetPort: 8080
@@ -226,6 +224,7 @@ gateways:
       istio: eastwestgateway
       topology.istio.io/network: network1
     injectionTemplate: gateway
+    type: LoadBalancer
     ports:
     - name: tcp-status-port
       port: 15021
@@ -335,10 +334,8 @@ gateways:
     labels:
       istio: ingressgateway
     injectionTemplate: gateway
+    type: NodePort
     ports:
-    - name: tcp-status-port
-      port: 15021
-      targetPort: 15021
     - name: http2
       port: 80
       targetPort: 8080
@@ -371,6 +368,7 @@ gateways:
       istio: eastwestgateway
       topology.istio.io/network: network1
     injectionTemplate: gateway
+    type: NodePort
     ports:
     - name: tcp-status-port
       port: 15021
