@@ -126,10 +126,10 @@ kubectl config use-context ${MGMT}
 
 We are going to deploy Istio using Helm, but there are several other options. You can find more information in the [Istio documentation](https://istio.io/latest/docs/setup/install/).
 
-First of all, let's Download the Istio release 1.12.6:
+First of all, let's Download the Istio release 1.13.4:
 
 ```bash
-export ISTIO_VERSION=1.12.6
+export ISTIO_VERSION=1.13.4
 curl -L https://istio.io/downloadIstio | sh -
 ```
 
@@ -143,17 +143,17 @@ kubectl --context ${CLUSTER1} create ns istio-gateways
 Now, let's deploy the Istio control plane on the first cluster:
 
 ```bash
-helm --kube-context=${CLUSTER1} upgrade --install istio-base ./istio-1.12.6/manifests/charts/base -n istio-system
+helm --kube-context=${CLUSTER1} upgrade --install istio-base ./istio-1.13.4/manifests/charts/base -n istio-system
 
-helm --kube-context=${CLUSTER1} upgrade --install istio-1.12.6 ./istio-1.12.6/manifests/charts/istio-control/istio-discovery -n istio-system --values - <<EOF
-revision: 1-12
+helm --kube-context=${CLUSTER1} upgrade --install istio-1.13.4 ./istio-1.13.4/manifests/charts/istio-control/istio-discovery -n istio-system --values - <<EOF
+revision: 1-13
 global:
   meshID: mesh1
   multiCluster:
     clusterName: cluster1
   network: network1
   hub: us-docker.pkg.dev/gloo-mesh/istio-workshops
-  tag: 1.12.6-solo
+  tag: 1.13.4-solo
 meshConfig:
   trustDomain: cluster1
   accessLogFile: /dev/stdout
@@ -177,12 +177,12 @@ EOF
 After that, you can deploy the gateway(s):
 
 ```bash
-kubectl --context ${CLUSTER1} label namespace istio-gateways istio.io/rev=1-12
+kubectl --context ${CLUSTER1} label namespace istio-gateways istio.io/rev=1-13
 
-helm --kube-context=${CLUSTER1} upgrade --install istio-ingressgateway ./istio-1.12.6/manifests/charts/gateways/istio-ingress -n istio-gateways --values - <<EOF
+helm --kube-context=${CLUSTER1} upgrade --install istio-ingressgateway ./istio-1.13.4/manifests/charts/gateways/istio-ingress -n istio-gateways --values - <<EOF
 global:
   hub: us-docker.pkg.dev/gloo-mesh/istio-workshops
-  tag: 1.12.6-solo
+  tag: 1.13.4-solo
 gateways:
   istio-ingressgateway:
     name: istio-ingressgateway
@@ -190,10 +190,8 @@ gateways:
     labels:
       istio: ingressgateway
     injectionTemplate: gateway
+    type: LoadBalancer
     ports:
-    - name: tcp-status-port
-      port: 15021
-      targetPort: 15021
     - name: http2
       port: 80
       targetPort: 8080
@@ -214,10 +212,10 @@ gateways:
       service.beta.kubernetes.io/aws-load-balancer-type: external
 EOF
 
-helm --kube-context=${CLUSTER1} upgrade --install istio-eastwestgateway ./istio-1.12.6/manifests/charts/gateways/istio-ingress -n istio-gateways --values - <<EOF
+helm --kube-context=${CLUSTER1} upgrade --install istio-eastwestgateway ./istio-1.13.4/manifests/charts/gateways/istio-ingress -n istio-gateways --values - <<EOF
 global:
   hub: us-docker.pkg.dev/gloo-mesh/istio-workshops
-  tag: 1.12.6-solo
+  tag: 1.13.4-solo
 gateways:
   istio-ingressgateway:
     name: istio-eastwestgateway
@@ -226,6 +224,7 @@ gateways:
       istio: eastwestgateway
       topology.istio.io/network: network1
     injectionTemplate: gateway
+    type: LoadBalancer
     ports:
     - name: tcp-status-port
       port: 15021
@@ -288,17 +287,17 @@ kubectl --context ${CLUSTER2} create ns istio-gateways
 Now, let's deploy the Istio control plane on the second cluster:
 
 ```bash
-helm --kube-context=${CLUSTER2} upgrade --install istio-base ./istio-1.12.6/manifests/charts/base -n istio-system
+helm --kube-context=${CLUSTER2} upgrade --install istio-base ./istio-1.13.4/manifests/charts/base -n istio-system
 
-helm --kube-context=${CLUSTER2} upgrade --install istio-1.12.6 ./istio-1.12.6/manifests/charts/istio-control/istio-discovery -n istio-system --values - <<EOF
-revision: 1-12
+helm --kube-context=${CLUSTER2} upgrade --install istio-1.13.4 ./istio-1.13.4/manifests/charts/istio-control/istio-discovery -n istio-system --values - <<EOF
+revision: 1-13
 global:
   meshID: mesh1
   multiCluster:
     clusterName: cluster2
   network: network1
   hub: us-docker.pkg.dev/gloo-mesh/istio-workshops
-  tag: 1.12.6-solo
+  tag: 1.13.4-solo
 meshConfig:
   trustDomain: cluster2
   accessLogFile: /dev/stdout
@@ -322,12 +321,12 @@ EOF
 After that, you can deploy the gateways:
 
 ```bash
-kubectl --context ${CLUSTER2} label namespace istio-gateways istio.io/rev=1-12
+kubectl --context ${CLUSTER2} label namespace istio-gateways istio.io/rev=1-13
 
-helm --kube-context=${CLUSTER2} upgrade --install istio-ingressgateway ./istio-1.12.6/manifests/charts/gateways/istio-ingress -n istio-gateways --values - <<EOF
+helm --kube-context=${CLUSTER2} upgrade --install istio-ingressgateway ./istio-1.13.4/manifests/charts/gateways/istio-ingress -n istio-gateways --values - <<EOF
 global:
   hub: us-docker.pkg.dev/gloo-mesh/istio-workshops
-  tag: 1.12.6-solo
+  tag: 1.13.4-solo
 gateways:
   istio-ingressgateway:
     name: istio-ingressgateway
@@ -335,10 +334,8 @@ gateways:
     labels:
       istio: ingressgateway
     injectionTemplate: gateway
+    type: LoadBalancer
     ports:
-    - name: tcp-status-port
-      port: 15021
-      targetPort: 15021
     - name: http2
       port: 80
       targetPort: 8080
@@ -359,10 +356,10 @@ gateways:
       service.beta.kubernetes.io/aws-load-balancer-type: external
 EOF
 
-helm --kube-context=${CLUSTER2} upgrade --install istio-eastwestgateway ./istio-1.12.6/manifests/charts/gateways/istio-ingress -n istio-gateways --values - <<EOF
+helm --kube-context=${CLUSTER2} upgrade --install istio-eastwestgateway ./istio-1.13.4/manifests/charts/gateways/istio-ingress -n istio-gateways --values - <<EOF
 global:
   hub: us-docker.pkg.dev/gloo-mesh/istio-workshops
-  tag: 1.12.6-solo
+  tag: 1.13.4-solo
 gateways:
   istio-ingressgateway:
     name: istio-eastwestgateway
@@ -371,6 +368,7 @@ gateways:
       istio: eastwestgateway
       topology.istio.io/network: network1
     injectionTemplate: gateway
+    type: LoadBalancer
     ports:
     - name: tcp-status-port
       port: 15021
@@ -430,9 +428,9 @@ Run the following commands to deploy the bookinfo application on `cluster1`:
 ```bash
 kubectl --context ${CLUSTER1} create ns bookinfo-frontends
 kubectl --context ${CLUSTER1} create ns bookinfo-backends
-curl https://raw.githubusercontent.com/istio/istio/1.12.6/samples/bookinfo/platform/kube/bookinfo.yaml -s|sed 's/docker\.io\/istio/us-central1-docker\.pkg\.dev\/solo-test-236622\/jmunozro/g'|tee bookinfo.yaml
-kubectl --context ${CLUSTER1} label namespace bookinfo-frontends istio.io/rev=1-12
-kubectl --context ${CLUSTER1} label namespace bookinfo-backends istio.io/rev=1-12
+curl https://raw.githubusercontent.com/istio/istio/release-1.13/samples/bookinfo/platform/kube/bookinfo.yaml > bookinfo.yaml
+kubectl --context ${CLUSTER1} label namespace bookinfo-frontends istio.io/rev=1-13
+kubectl --context ${CLUSTER1} label namespace bookinfo-backends istio.io/rev=1-13
 # deploy the frontend bookinfo service in the bookinfo-frontends namespace
 kubectl --context ${CLUSTER1} -n bookinfo-frontends apply -f bookinfo.yaml -l 'account in (productpage)'
 kubectl --context ${CLUSTER1} -n bookinfo-frontends apply -f bookinfo.yaml -l 'app in (productpage)'
@@ -472,9 +470,8 @@ Now, run the following commands to deploy the bookinfo application on `cluster2`
 ```bash
 kubectl --context ${CLUSTER2} create ns bookinfo-frontends
 kubectl --context ${CLUSTER2} create ns bookinfo-backends
-curl https://raw.githubusercontent.com/istio/istio/1.12.6/samples/bookinfo/platform/kube/bookinfo.yaml -s|sed 's/docker\.io\/istio/us-central1-docker\.pkg\.dev\/solo-test-236622\/jmunozro/g'|tee bookinfo.yaml
-kubectl --context ${CLUSTER2} label namespace bookinfo-frontends istio.io/rev=1-12
-kubectl --context ${CLUSTER2} label namespace bookinfo-backends istio.io/rev=1-12
+kubectl --context ${CLUSTER2} label namespace bookinfo-frontends istio.io/rev=1-13
+kubectl --context ${CLUSTER2} label namespace bookinfo-backends istio.io/rev=1-13
 # deploy the frontend bookinfo service in the bookinfo-frontends namespace
 kubectl --context ${CLUSTER2} -n bookinfo-frontends apply -f bookinfo.yaml -l 'account in (productpage)'
 kubectl --context ${CLUSTER2} -n bookinfo-frontends apply -f bookinfo.yaml -l 'app in (productpage)'
@@ -608,7 +605,7 @@ spec:
       labels:
         app: in-mesh
         version: v1
-        istio.io/rev: 1-12
+        istio.io/rev: 1-13
     spec:
       serviceAccountName: in-mesh
       containers:
@@ -637,7 +634,7 @@ not-in-mesh-5c64bb49cd-m9kwm   1/1     Running   0          11s
 First of all, let's install the `meshctl` CLI:
 
 ```bash
-export GLOO_MESH_VERSION=v2.0.5
+export GLOO_MESH_VERSION=v2.0.9
 curl -sL https://run.solo.io/meshctl/install | sh -
 export PATH=$HOME/.gloo-mesh/bin:$PATH
 ```
@@ -650,7 +647,7 @@ helm repo update
 kubectl --context ${MGMT} create ns gloo-mesh 
 helm upgrade --install gloo-mesh-enterprise gloo-mesh-enterprise/gloo-mesh-enterprise \
 --namespace gloo-mesh --kube-context ${MGMT} \
---version=2.0.5 \
+--version=2.0.9 \
 --values - <<EOF
 licenseKey: "${GLOO_MESH_LICENSE_KEY}"
 mgmtClusterName: mgmt
@@ -766,7 +763,7 @@ helm upgrade --install gloo-mesh-agent gloo-mesh-agent/gloo-mesh-agent \
   --set rate-limiter.enabled=false \
   --set ext-auth-service.enabled=false \
   --set cluster=cluster1 \
-  --version 2.0.5
+  --version 2.0.9
 ```
 
 Note that the registration can also be performed using `meshctl cluster register`.
@@ -802,7 +799,7 @@ helm upgrade --install gloo-mesh-agent gloo-mesh-agent/gloo-mesh-agent \
   --set rate-limiter.enabled=false \
   --set ext-auth-service.enabled=false \
   --set cluster=cluster2 \
-  --version 2.0.5
+  --version 2.0.9
 ```
 
 You can check the cluster(s) have been registered correctly using the following commands:
@@ -827,9 +824,9 @@ First, you need to create a namespace for the addons, with Istio injection enabl
 
 ```bash
 kubectl --context ${CLUSTER1} create namespace gloo-mesh-addons
-kubectl --context ${CLUSTER1} label namespace gloo-mesh-addons istio.io/rev=1-12
+kubectl --context ${CLUSTER1} label namespace gloo-mesh-addons istio.io/rev=1-13
 kubectl --context ${CLUSTER2} create namespace gloo-mesh-addons
-kubectl --context ${CLUSTER2} label namespace gloo-mesh-addons istio.io/rev=1-12
+kubectl --context ${CLUSTER2} label namespace gloo-mesh-addons istio.io/rev=1-13
 ```
 
 Then, you can deploy the addons on the cluster(s) using Helm:
@@ -841,7 +838,7 @@ helm upgrade --install gloo-mesh-agent-addons gloo-mesh-agent/gloo-mesh-agent \
   --set glooMeshAgent.enabled=false \
   --set rate-limiter.enabled=true \
   --set ext-auth-service.enabled=true \
-  --version 2.0.5
+  --version 2.0.9
 
 helm upgrade --install gloo-mesh-agent-addons gloo-mesh-agent/gloo-mesh-agent \
   --namespace gloo-mesh-addons \
@@ -849,7 +846,7 @@ helm upgrade --install gloo-mesh-agent-addons gloo-mesh-agent/gloo-mesh-agent \
   --set glooMeshAgent.enabled=false \
   --set rate-limiter.enabled=true \
   --set ext-auth-service.enabled=true \
-  --version 2.0.5
+  --version 2.0.9
 ```
 
 Finally, you need to specify which gateways you want to use for cross cluster traffic:
@@ -1573,7 +1570,7 @@ metadata:
     gloo.solo.io/parent_cluster: cluster1
     gloo.solo.io/parent_group: internal.gloo.solo.io
     gloo.solo.io/parent_kind: IssuedCertificate
-    gloo.solo.io/parent_name: istiod-1-12-istio-system-cluster1
+    gloo.solo.io/parent_name: istiod-1-13-istio-system-cluster1
     gloo.solo.io/parent_namespace: istio-system
     gloo.solo.io/parent_version: v2
     reconciler.mesh.gloo.solo.io/name: cert-agent
@@ -1610,7 +1607,7 @@ metadata:
     gloo.solo.io/parent_cluster: cluster2
     gloo.solo.io/parent_group: internal.gloo.solo.io
     gloo.solo.io/parent_kind: IssuedCertificate
-    gloo.solo.io/parent_name: istiod-1-12-istio-system-cluster2
+    gloo.solo.io/parent_name: istiod-1-13-istio-system-cluster2
     gloo.solo.io/parent_namespace: istio-system
     gloo.solo.io/parent_version: v2
     reconciler.mesh.gloo.solo.io/name: cert-agent
